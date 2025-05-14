@@ -10,7 +10,6 @@ use League\Csv\Reader;
 
 class ImportarClientesCSV extends Command
 {
-
     /**
      * The name and signature of the console command.
      *
@@ -23,14 +22,13 @@ class ImportarClientesCSV extends Command
      *
      * @var string
      */
-    protected $description = 'Command description';
+    protected $description = 'Importa clientes a partir de um arquivo CSV';
 
     /**
      * Execute the console command.
      */
     public function handle()
     {
-        //
         $arquivo = $this->argument('arquivo');
 
         if (!file_exists($arquivo)) {
@@ -38,46 +36,53 @@ class ImportarClientesCSV extends Command
             return 1;
         }
 
-        $csv = Reader::createFromPath($arquivo, 'r');
-        $csv->setDelimiter(';'); // <- AQUI
-        $csv->setHeaderOffset(0); // primeira linha como cabeçalho
-        CharsetConverter::addTo($csv, 'ISO-8859-1', 'UTF-8');
+        try {
+            $csv = Reader::createFromPath($arquivo, 'r');
+            $csv->setDelimiter(','); // Alterado para vírgula
+            $csv->setHeaderOffset(0); // Primeira linha como cabeçalho
+            CharsetConverter::addTo($csv, 'ISO-8859-1', 'UTF-8');
 
-        foreach ($csv as $linha) {
-            // Verifica se o status é 1
-            if ((int)$linha["usu_id"] !== 33 || (int)$linha["desativado"] !== 0) {
-                continue; // Pula se não for 1
+            $contador = 0;
+
+            foreach ($csv as $linha) {
+                // Verifica se o status é válido
+                if ((int)$linha["usu_id"] !== 33 || (int)$linha["desativado"] !== 1) {
+                    continue; // Pula se não atender os critérios
+                }
+
+                $mensagem = sprintf(
+                    'Bom dia, *%s* seu plano expira hoje. Queria saber se tem interesse em renovar?',
+                    $linha['nome']
+                );
+
+                $cliente = Client::firstOrCreate(
+                    [
+                        'name' => $linha['nome'],
+                        'vencimento' => $linha['dataVencimento'],
+                        'value_mensalidade' => $linha['valorCobrado'],
+                        'status' => 'Inativo',
+                        'user_id' => 1,
+                        'phone' => preg_replace('/[^\d]/', '', $linha['celular']),
+                        'cobrar' => (int)$linha['status_cobranca'] === 0 ? 1 : 0, // Corrigido para lógica correta
+                        'msg_enviar' => $mensagem,
+                        'referencia' => $linha['usuario'],
+                        'observation' => $linha['obs'],
+                    ]
+                );
+
+                if ($cliente->wasRecentlyCreated) {
+                    $contador++;
+                    $this->info("Cliente '{$linha['nome']}' importado com sucesso!");
+                } else {
+                    $this->info("Cliente '{$linha['nome']}' já existe, pulando...");
+                }
             }
 
-            $mensagem = sprintf(
-                'Bom dia, *%s* seu plano  expira hoje. Queria saber se tem interesse em renovar?',
-                $linha['nome'],
-
-            );
-            //'date_desativado' => $linha['data_desativado'] ?? null,
-
-            Client::firstOrCreate(
-
-                [
-                    'name' => $linha['nome'],
-                    'vencimento' => $linha['dataVencimento'],
-                    'value_mensalidade' => $linha['valorCobrado'],
-                    'status' => "Inativo",
-                    'user_id' => '2',
-                    'phone' => preg_replace('/[^\d]/', '', $linha['celular']),
-                    'cobrar' => $linha['status_cobranca']? 0 : 1,
-                    'msg_enviar' => $mensagem,
-                    'referencia' => $linha['usuario'],
-                    'observation' => $linha['obs'],
-
-                ]
-            );
-
-            $this->info('Importação concluída com sucesso!');
+            $this->info("Importação concluída com sucesso! Total de clientes importados: $contador");
+            return 0;
+        } catch (\Exception $e) {
+            $this->error("Erro ao processar o arquivo: " . $e->getMessage());
+            return 1;
         }
-        return 0;
-
     }
-
 }
-//php artisan importar:clientes storage/app/cliente.csv
