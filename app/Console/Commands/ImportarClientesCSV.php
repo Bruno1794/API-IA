@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Client;
+use Carbon\Carbon;
 use Illuminate\Console\Command;
 use League\Csv\CharsetConverter;
 use League\Csv\Reader;
@@ -48,16 +49,27 @@ class ImportarClientesCSV extends Command
                 continue; // Pula se não for 1
             }
 
+            $mensagem = sprintf(
+                'Bom dia, *%s* seu plano  expira hoje. Queria saber se tem interesse em renovar?',
+                $linha['nome'],
+
+            );
+            //'date_desativado' => $linha['data_desativado'] ?? null,
+
             Client::firstOrCreate(
 
                 [
                     'name' => $linha['nome'],
                     'vencimento' => $linha['dataVencimento'],
                     'value_mensalidade' => $linha['valorCobrado'],
-                    'type_client' => 'Cliente',
-                    'user_id' => '1',
-                    'phone' => $linha['celular'],
-                    'cobranca' => $linha['status_cobranca']
+                    'status' => "Inativo",
+                    'user_id' => '2',
+                    'phone' => preg_replace('/[^\d]/', '', $linha['celular']),
+                    'cobrar' => $linha['status_cobranca']? 0 : 1,
+                    'msg_enviar' => $mensagem,
+                    'referencia' => $linha['usuario'],
+                    'observation' => $linha['obs'],
+
                 ]
             );
 
