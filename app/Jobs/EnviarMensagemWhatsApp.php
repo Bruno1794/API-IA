@@ -79,9 +79,6 @@ class EnviarMensagemWhatsApp implements ShouldQueue
         ]);
     }
 
-    public function handleNotica(QuepasaService $quepasa)
-    {
 
-    }
 }
 ##php artisan queue:work
