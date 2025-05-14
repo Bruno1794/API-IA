@@ -13,7 +13,7 @@ return new class extends Migration {
         Schema::create('payments', function (Blueprint $table) {
             $table->id();
             $table->foreignId('client_id')->constrained('clients');
-            $table->date('data_criado')->default(\Illuminate\Support\Facades\DB::raw('NOW()'));
+            $table->date('data_criado')->useCurrent();
             $table->enum('status', ['PENDENTE', 'PAGO'])->default('PENDENTE');
             $table->decimal('valor_debito', 8, 2);
             $table->enum('tipo_pagamento', ['BOLETO', 'PIX', 'CARTAO', 'TRANSFERENCIA'])->default('PIX');
