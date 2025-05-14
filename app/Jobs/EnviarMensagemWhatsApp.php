@@ -74,6 +74,7 @@ class EnviarMensagemWhatsApp implements ShouldQueue
 
         $cliente->payments()->create([
             'user_id' => $cliente->user_id,
+            'data_criado' => Carbon::today()->toDateString(),
             'valor_debito' => $cliente->value_mensalidade,
             'tipo_pagamento' => $cliente->preferencia,
         ]);

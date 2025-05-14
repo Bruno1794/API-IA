@@ -242,6 +242,7 @@ class ClientController extends Controller
 
         $client->payments()->create([
             'user_id' => Auth::id(),
+            'data_criado' => Carbon::today()->toDateString(),
             'valor_debito' => $client->value_mensalidade,
             'status' => "PAGO",
             'data_pagamento' => carbon::now(),
@@ -280,6 +281,7 @@ class ClientController extends Controller
         if ($request->gerar_cobranca) {
             $client->payments()->create([
                 'user_id' => Auth::id(),
+
                 'valor_debito' => $request->value_mensalidade ?? $client->value_mensalidade,
                 'data_criado' => Carbon::now()->toDateString(),
             ]);
@@ -469,6 +471,7 @@ class ClientController extends Controller
                 // Cria o registro de pagamento
                 $client->payments()->create([
                     'user_id' => Auth::id(),
+                    'data_criado' => Carbon::today()->toDateString(),
                     'valor_debito' => $client->value_mensalidade,
                     'tipo_pagamento' => $client->preferencia,
                     'observation' => $request->observation,
