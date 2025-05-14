@@ -53,13 +53,20 @@ class QuepasaService
 
     public function webhookService($token)
     {
+        $urls = [
+            "http://n8npay.zapto.org:5678/webhook/6149f2e4-b726-4592-83d0-21db5f120de8",
+            "http://n8npay.zapto.org:5678/webhook-test/6149f2e4-b726-4592-83d0-21db5f120de8",
+        ];
+
         $response = Http::withHeaders([
             'Accept' => "application/json"
         ])
             ->post("{$this->baseUrl}/v3/bot/" . $token . "/webhook", [
-                "url" => "http://192.168.0.220:5678/webhook/6149f2e4-b726-4592-83d0-21db5f120de8",
+                "url" => $urls,
                 "forwardinternal" => false,
-            ]);
+            ],);
+
+
 
         return $response->json('status');
     }
