@@ -46,7 +46,7 @@ class ImportarClientesCSV extends Command
 
             foreach ($csv as $linha) {
                 // Verifica se o status é válido
-                if ((int)$linha["usu_id"] !== 33 || (int)$linha["desativado"] !== 1) {
+                if ((int)$linha["usu_id"] !== 33 || (int)$linha["desativado"] !== 0) {
                     continue; // Pula se não atender os critérios
                 }
 
@@ -60,10 +60,10 @@ class ImportarClientesCSV extends Command
                         'name' => $linha['nome'],
                         'vencimento' => $linha['dataVencimento'],
                         'value_mensalidade' => $linha['valorCobrado'],
-                        'status' => 'Inativo',
-                        'user_id' => 1,
+                        'status' => 'Ativo',
+                        'user_id' => 2,
                         'phone' => preg_replace('/[^\d]/', '', $linha['celular']),
-                        'cobrar' => (int)$linha['status_cobranca'] === 0 ? 1 : 0, // Corrigido para lógica correta
+                        'cobrar' => (int)$linha['loginDuplo'],
                         'msg_enviar' => $mensagem,
                         'referencia' => $linha['usuario'],
                         'observation' => $linha['obs'],
