@@ -22,12 +22,6 @@ class SettingsSeeder extends Seeder
             ]);
         }*/
 
-        if (!Settings::where('time_cobranca', '=','08:35')->exists()) {
-            Settings::create([
-                'time_cobranca' => "08:35",
-                'user_id' => "2",
 
-            ]);
-        }
     }
 }

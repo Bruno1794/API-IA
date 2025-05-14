@@ -14,12 +14,12 @@ class UserSeeder extends Seeder
     public function run(): void
     {
         //
-        if (!User::where('username', '=','bruno1020')->exists()) {
+        if (!User::where('username', '=','turboplay')->exists()) {
            $user =  User::create([
                 'name' => "Bruno",
-                'username' => "bruno1020",
-                'phone' => "44991665359",
-                'validate' => "2025-05-20",
+                'username' => "turboplay",
+                'phone' => "554491665359",
+                'validate' => "2029-12-25",
                 'password' => Hash::make('051161', ['rounds' => 12]),
             ]);
 
@@ -27,7 +27,7 @@ class UserSeeder extends Seeder
                 'time_cobranca' => "08:30",
             ]);
         }
-
+/*
         if (!User::where('username', '=','loja1020')->exists()) {
           $user =   User::create([
                 'name' => "Loja",
@@ -39,6 +39,6 @@ class UserSeeder extends Seeder
             $user->settings()->create([
                 'time_cobranca' => "10:30",
             ]);
-        }
+        }*/
     }
 }

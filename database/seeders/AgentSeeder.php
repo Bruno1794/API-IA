@@ -15,7 +15,7 @@ class AgentSeeder extends Seeder
     {
         //
 
-        Agent::create([
+       /* Agent::create([
             'pergunta' => "Como funciona?",
             'resposta' => "Criamos automação para empresas, software que ajuda no seu dia dia. Chatboot, agendamentos
             preenchimentos de documentos automatizado e muito mais",
@@ -39,7 +39,7 @@ class AgentSeeder extends Seeder
         Agent::create([
         'pergunta' => "Formas de Pagamento",
         'resposta' => "Pix ou Cartao. Para o inicio do projeto será necessario o pagamento de 50% do valor.",
-          ]);
+          ]);*/
 
 
      /*   Agent::create([
