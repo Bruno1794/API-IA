@@ -318,68 +318,35 @@ class ClientController extends Controller
 
     public function storeWhats(Request $request): JsonResponse
     {
-        // Extrai o usuário admin pelo número antes do ":"
-        $adminPhone = Str::before($request->phone, ':');
-        $dadosAdmin = User::with('settings')->where('phone', $adminPhone)->first();
+        $dadosAdmin = User::with('settings')
+            ->where('phone', Str::before($request->phone, ':'))->first();
 
         if (!$dadosAdmin) {
             return response()->json(['error' => 'Usuário administrador não encontrado.'], 404);
         }
 
-        // Extrai o número do cliente antes do "@"
-        $phone_cliente = Str::before($request->phone_cliente, '@');
+        // Normalizando o número do cliente
+        $phone = preg_replace('/\D/', '', Str::before($request->phone_cliente, '@'));
 
-        // Valida o número extraído
-        if (!preg_match('/^(\+?55\s?)?(\d{2})\s?9?\d{4}-?\d{4}$/', $phone_cliente)) {
+        // Garantindo que o número tenha 11 dígitos (com o 9)
+        if (strlen($phone) === 10) {
+            $phone = substr($phone, 0, 2) . '9' . substr($phone, 2);
+        }
+
+        // Validação final do número
+        if (!preg_match('/^(\d{2})9\d{4}\d{4}$/', $phone)) {
             return response()->json(['error' => 'Número de telefone do cliente não é válido.'], 422);
         }
 
-        // Remove máscara e padrão internacional pra comparar só os dígitos
-        $phoneLimpoCliente = preg_replace('/\D/', '', $phone_cliente); // remove tudo que não é número
-
-        // Verifica se o número tem o 9 após o DDD (ex: 11 98765-4321)
-        $temNove = strlen($phoneLimpoCliente) === 11 && substr($phoneLimpoCliente, 2, 1) === '9';
-
         if ($request->type === 'text' && $dadosAdmin->settings->cadastro) {
-
-            // Busca cliente por número limpo (sem máscara)
-            $cliente = Client::where('phone', 'like', "%{$phoneLimpoCliente}")
-                ->orWhere('phone', $phone_cliente)
-                ->first();
-
-            if ($cliente) {
-                // Cliente já existe — compara se o formato tem o "9" como esperado
-                $phoneDoBanco = preg_replace('/\D/', '', $cliente->phone);
-
-                if ($temNove && substr($phoneDoBanco, 2, 1) !== '9') {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Já existe um cliente sem o dígito 9 no número.',
-                        'client' => $cliente
-                    ], 409);
-                } elseif (!$temNove && substr($phoneDoBanco, 2, 1) === '9') {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Já existe um cliente com o dígito 9 no número.',
-                        'client' => $cliente
-                    ], 409);
-                }
-
-                // Números compatíveis, retorna o cliente existente
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Cliente já cadastrado com o formato correto.',
-                    'client' => $cliente
-                ], 200);
-            }
-
-            // Não existe, então cria
-            $cliente = Client::create([
-                'user_id' => $dadosAdmin->id,
-                'name' => $request->name,
-                'phone' => $phone_cliente,
-                'status' => "Novo",
-            ]);
+            $cliente = Client::firstOrCreate(
+                ['phone' => $phone],
+                [
+                    'user_id' => $dadosAdmin->id,
+                    'name' => $request->name,
+                    'status' => "Novo",
+                ]
+            );
         }
 
         return response()->json([
@@ -387,7 +354,6 @@ class ClientController extends Controller
             'client' => $cliente
         ], 200);
     }
-
     public function cobranca(): JsonResponse
     {
         $horaAtual = Carbon::now()->format('H:i');
