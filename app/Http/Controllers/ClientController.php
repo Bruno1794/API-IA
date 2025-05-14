@@ -318,6 +318,7 @@ class ClientController extends Controller
 
     public function storeWhats(Request $request): JsonResponse
     {
+
         $dadosAdmin = User::with('settings')
             ->where('phone', Str::before($request->phone, ':'))->first();
 
@@ -325,16 +326,23 @@ class ClientController extends Controller
             return response()->json(['error' => 'Usuário administrador não encontrado.'], 404);
         }
 
-        // Normalizando o número do cliente
+        // Normalizando o número do cliente (removendo caracteres não numéricos)
         $phone = preg_replace('/\D/', '', Str::before($request->phone_cliente, '@'));
 
-        // Garantindo que o número tenha 11 dígitos (com o 9)
-        if (strlen($phone) === 10) {
-            $phone = substr($phone, 0, 2) . '9' . substr($phone, 2);
+
+        // Garantir que o número tenha o prefixo 55
+        if (!str_starts_with($phone, '55')) {
+            $phone = '55' . $phone;
         }
 
-        // Validação final do número
-        if (!preg_match('/^(\d{2})9\d{4}\d{4}$/', $phone)) {
+        // Verificar se o número possui 13 dígitos (55 + DDD + 9 + número)
+        if (strlen($phone) === 12) {
+            // Adiciona o dígito 9 após o DDD
+            $phone = substr($phone, 0, 4) . '9' . substr($phone, 4);
+        }
+
+        // Validação final do número (com o prefixo 55)
+        if (!preg_match('/^55\d{2}9\d{4}\d{4}$/', $phone)) {
             return response()->json(['error' => 'Número de telefone do cliente não é válido.'], 422);
         }
 
