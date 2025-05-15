@@ -461,6 +461,9 @@ class ClientController extends Controller
                 'valor_debito' => $cliente->value_mensalidade,
                 'tipo_pagamento' => $cliente->preferencia,
             ]);
+
+            // Pausa de 2 segundos entre cada envio
+            sleep(5);
         }
 
         return response()->json(['success' => true], 200);
