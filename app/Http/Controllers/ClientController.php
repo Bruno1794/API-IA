@@ -452,7 +452,7 @@ class ClientController extends Controller
 
             $cliente->update([
                 'vencimento' => $novoVencimento,
-                'cobrar' => true,
+
             ]);
 
             $cliente->payments()->create([
