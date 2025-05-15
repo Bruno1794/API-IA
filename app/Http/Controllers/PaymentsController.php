@@ -23,17 +23,17 @@ class PaymentsController extends Controller
         // Define o intervalo de datas com base no filtro
         switch (strtolower($filtro)) {
             case 'Semanal':
-                $inicio = Carbon::parse($hoje)->startOfWeek()->format('Y-m-d');
+                $inicio = Carbon::now()->startOfWeek()->format('Y-m-d');
                 $fim = Carbon::parse($hoje)->endOfWeek()->format('Y-m-d');
                 break;
 
             case 'Mensal':
-                $inicio = Carbon::parse($hoje)->startOfMonth()->format('Y-m-d');
+                $inicio = Carbon::now()->startOfWeek()->format('Y-m-d');
                 $fim = Carbon::parse($hoje)->endOfMonth()->format('Y-m-d');
                 break;
 
             case 'Anual':
-                $inicio = Carbon::parse($hoje)->startOfYear()->format('Y-m-d');
+                $inicio = Carbon::now()->startOfWeek()->format('Y-m-d');
                 $fim = Carbon::parse($hoje)->endOfYear()->format('Y-m-d');
                 break;
 
