@@ -14,34 +14,34 @@ class PaymentsController extends Controller
 
     public function filtroPagamentos() :JsonResponse
     {
-        $filtro = request()->input('filtro', 'hoje');
+        $filtro = request()->input('filtro', 'Hoje');
 
         // Data atual
         $hoje = Carbon::now()->format('Y-m-d');
 
         // Define o intervalo de datas com base no filtro
         switch (strtolower($filtro)) {
-            case 'ontem':
+            case 'Ontem':
                 $inicio = Carbon::yesterday()->format('Y-m-d');
                 $fim = Carbon::yesterday()->format('Y-m-d');
                 break;
 
-            case 'semanal':
+            case 'Semanal':
                 $inicio = Carbon::now()->startOfWeek()->format('Y-m-d');
                 $fim = Carbon::now()->endOfWeek()->format('Y-m-d');
                 break;
 
-            case 'mensal':
+            case 'Mensal':
                 $inicio = Carbon::now()->startOfMonth()->format('Y-m-d');
                 $fim = Carbon::now()->endOfMonth()->format('Y-m-d');
                 break;
 
-            case 'anual':
+            case 'Anual':
                 $inicio = Carbon::now()->startOfYear()->format('Y-m-d');
                 $fim = Carbon::now()->endOfYear()->format('Y-m-d');
                 break;
 
-            case 'hoje':
+            case 'Hoje':
             default:
                 $inicio = $hoje;
                 $fim = $hoje;
