@@ -25,12 +25,12 @@ class PaymentsController extends Controller
 
             case 'Ontem':
                 $inicio = Carbon::yesterday()->format('Y-m-d');
-                $fim = Carbon::yesterday()->format('Y-m-d');
+                $fim = Carbon::now()->endOfWeek()->format('Y-m-d');
                 break;
 
             case 'Semanal':
                 $inicio = Carbon::now()->startOfWeek()->format('Y-m-d');
-                $fim = Carbon::parse($hoje)->endOfWeek()->format('Y-m-d');
+                $fim = Carbon::now()->endOfMonth()->format('Y-m-d');
                 break;
 
             case 'Mensal':
@@ -40,7 +40,7 @@ class PaymentsController extends Controller
 
             case 'Anual':
                 $inicio = Carbon::now()->startOfYear()->format('Y-m-d');
-                $fim = Carbon::parse($hoje)->endOfYear()->format('Y-m-d');
+                $fim = Carbon::now()->endOfYear()->format('Y-m-d');
                 break;
 
             case 'hoje':
