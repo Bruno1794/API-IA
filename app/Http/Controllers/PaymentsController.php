@@ -12,15 +12,16 @@ class PaymentsController extends Controller
 {
     //
 
-    public function filtroPagamentos() :JsonResponse
+    public function filtroPagamentos(): JsonResponse
     {
-        $filtro = request()->input('filtro', 'hoje');
+        // Captura o filtro da requisição ou usa "hoje" como padrão
+        $filtro = strtolower(request()->input('filtro', 'hoje'));
 
         // Data atual
         $hoje = Carbon::now()->format('Y-m-d');
 
         // Define o intervalo de datas com base no filtro
-        switch (strtolower($filtro)) {
+        switch ($filtro) {
             case 'ontem':
                 $inicio = Carbon::yesterday()->format('Y-m-d');
                 $fim = Carbon::yesterday()->format('Y-m-d');
@@ -48,19 +49,37 @@ class PaymentsController extends Controller
                 break;
         }
 
-        $qtd = Payment::where('user_id', Auth::id())
-            ->whereBetween('created_at', [$inicio, $fim])
-            ->count();
+        // Verifica se é o filtro "hoje" para usar whereDate
+        if ($filtro === 'hoje') {
+            $qtd = Payment::where('user_id', Auth::id())
+                ->whereDate('created_at', $hoje)
+                ->count();
 
-        $Recebidos = Payment::where('user_id', Auth::id())
-            ->where('status', 'Pago')
-            ->whereBetween('created_at', [$inicio, $fim])
-            ->sum('valor_debito');
+            $Recebidos = Payment::where('user_id', Auth::id())
+                ->where('status', 'Pago')
+                ->whereDate('created_at', $hoje)
+                ->sum('valor_debito');
 
-        $pendente = Payment::where('user_id', Auth::id())
-            ->where('status', 'Pendente')
-            ->whereBetween('created_at', [$inicio, $fim])
-            ->sum('valor_debito');
+            $pendente = Payment::where('user_id', Auth::id())
+                ->where('status', 'Pendente')
+                ->whereDate('created_at', $hoje)
+                ->sum('valor_debito');
+        } else {
+            // Consulta para os demais filtros (ontem, semanal, mensal, anual)
+            $qtd = Payment::where('user_id', Auth::id())
+                ->whereBetween('created_at', [$inicio, $fim])
+                ->count();
+
+            $Recebidos = Payment::where('user_id', Auth::id())
+                ->where('status', 'Pago')
+                ->whereBetween('created_at', [$inicio, $fim])
+                ->sum('valor_debito');
+
+            $pendente = Payment::where('user_id', Auth::id())
+                ->where('status', 'Pendente')
+                ->whereBetween('created_at', [$inicio, $fim])
+                ->sum('valor_debito');
+        }
 
         return response()->json([
             'success' => true,
