@@ -64,7 +64,7 @@ class PaymentsController extends Controller
 
         return response()->json([
             'success' => true,
-            'filtro' => ucfirst($filtro),
+            'filtro' => ucfirst($filtro ?? 'hoje'),
             'pagamentos' => [
                 'qtd' => $qtd,
                 'recebidos' => $Recebidos,
