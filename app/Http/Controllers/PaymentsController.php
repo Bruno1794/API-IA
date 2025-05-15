@@ -52,7 +52,7 @@ class PaymentsController extends Controller
         }
 
         $qtd = Payment::where('user_id', Auth::id())
-            ->whereDate('created_at', '=', $hoje) // Usando o formato 'Y-m-d'
+            ->whereBetween('created_at', [$inicio, $fim])
             ->count();
 
         $Recebidos = Payment::where('user_id', Auth::id())
@@ -62,7 +62,7 @@ class PaymentsController extends Controller
 
         $pendente = Payment::where('user_id', Auth::id())
             ->where('status', 'Pendente')
-            ->whereDate('created_at', '=', $hoje) // Aplicando o filtro de data antes do sum
+            ->whereBetween('created_at', [$inicio, $fim])
             ->sum('valor_debito');  // Também não precisa do ->first() aqui
 
         return response()->json([
