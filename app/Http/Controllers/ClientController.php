@@ -391,7 +391,7 @@ class ClientController extends Controller
 //        ]);
 //    }
 
-    public function cobranca(): JsonResponse
+  /*  public function cobranca(): JsonResponse
     {
         $horaAtual = Carbon::now()->format('H:i');
         $clientes = Client::where('status', 'Ativo')
@@ -403,6 +403,7 @@ class ClientController extends Controller
                 return Carbon::parse($cliente->vencimento)
                     ->isSameDay(Carbon::today()->addDays($cliente->avisar ?? 0));
             });
+
 
         foreach ($clientes as $cliente) {
             $vencimentoAtual = Carbon::parse($cliente->vencimento);
@@ -469,7 +470,87 @@ class ClientController extends Controller
         }
 
         return response()->json(['success' => true], 200);
+    }*/
+
+    public function cobranca(): JsonResponse
+    {
+        $horaAtual = Carbon::now()->format('H:i');
+
+        // Filtrar apenas clientes cujo horário de cobrança já passou
+        $clientes = Client::where('status', 'Ativo')
+            ->where('cobrar', false)
+            ->with('user.settings')
+            ->get()
+            ->filter(function ($cliente) use ($horaAtual) {
+                // Verifica se o horário de cobrança já passou
+                if ($cliente->user->settings->time_cobranca >= $horaAtual) {
+                    return false;
+                }
+
+                // Verifica se a data atual + $cliente->avisar dias é igual ao vencimento
+                return Carbon::parse($cliente->vencimento)
+                    ->isSameDay(Carbon::today()->addDays($cliente->avisar ?? 0));
+            });
+
+        // Se não houver clientes que atendem aos critérios, retornar sucesso
+        if ($clientes->isEmpty()) {
+            return response()->json(['success' => false, 'message' => 'Nenhuma cobrança a ser realizada no momento.'], 200);
+        }
+
+        foreach ($clientes as $cliente) {
+            $vencimentoAtual = Carbon::parse($cliente->vencimento);
+            $novoVencimento = $vencimentoAtual;
+
+            // Atualiza o vencimento conforme o tipo de cobrança
+            switch ($cliente->type_cobranca) {
+                case 'MENSAL':
+                    $novoVencimento = $vencimentoAtual->addMonth();
+                    break;
+                case 'BIMESTRAL':
+                    $novoVencimento = $vencimentoAtual->addMonths(2);
+                    break;
+                case 'TRIMESTRAL':
+                    $novoVencimento = $vencimentoAtual->addMonths(3);
+                    break;
+                case 'SEMESTRAL':
+                    $novoVencimento = $vencimentoAtual->addMonths(6);
+                    break;
+                case 'ANUAL':
+                    $novoVencimento = $vencimentoAtual->addYear();
+                    break;
+            }
+
+            $dados = [
+                'message' => $cliente->msg_enviar ?? 'Mensagem padrão de cobrança',
+                'phone_cliente' => $cliente->phone,
+                'token' => $cliente->user->username,
+            ];
+
+            try {
+                $this->quepasa->sendTextService($dados);
+            } catch (\Exception $e) {
+                return response()->json(['error' => 'Erro ao enviar mensagem'], 500);
+            }
+
+            // Atualiza o vencimento e cria o pagamento
+            $cliente->update([
+                'vencimento' => $novoVencimento,
+            ]);
+
+            $cliente->payments()->create([
+                'user_id' => $cliente->user_id,
+                'data_criado' => Carbon::today()->toDateString(),
+                'valor_debito' => $cliente->value_mensalidade,
+                'tipo_pagamento' => $cliente->preferencia,
+            ]);
+
+            // Pausa de 5 segundos entre cada envio
+            sleep(5);
+        }
+
+        return response()->json(['success' => true], 200);
     }
+
 
     public function destroy(Client $client): JsonResponse
     {
