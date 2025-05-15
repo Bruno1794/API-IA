@@ -17,35 +17,32 @@ class PaymentsController extends Controller
         $filtro = request()->input('filtro', 'hoje');
 
         // Data atual
-        $hoje = Carbon::now()->format('Y-m-d');  // Aqui estamos pegando só a data
-
+        $hoje = Carbon::now()->format('Y-m-d');
 
         // Define o intervalo de datas com base no filtro
         switch (strtolower($filtro)) {
-
-            case 'Ontem':
+            case 'ontem':
                 $inicio = Carbon::yesterday()->format('Y-m-d');
+                $fim = Carbon::yesterday()->format('Y-m-d');
+                break;
+
+            case 'semanal':
+                $inicio = Carbon::now()->startOfWeek()->format('Y-m-d');
                 $fim = Carbon::now()->endOfWeek()->format('Y-m-d');
                 break;
 
-            case 'Semanal':
-                $inicio = Carbon::now()->startOfWeek()->format('Y-m-d');
+            case 'mensal':
+                $inicio = Carbon::now()->startOfMonth()->format('Y-m-d');
                 $fim = Carbon::now()->endOfMonth()->format('Y-m-d');
                 break;
 
-            case 'Mensal':
-                $inicio = Carbon::now()->startOfWeek()->format('Y-m-d');
-                $fim = Carbon::parse($hoje)->endOfMonth()->format('Y-m-d');
-                break;
-
-            case 'Anual':
+            case 'anual':
                 $inicio = Carbon::now()->startOfYear()->format('Y-m-d');
                 $fim = Carbon::now()->endOfYear()->format('Y-m-d');
                 break;
 
             case 'hoje':
             default:
-                // Apenas o dia de hoje, no formato 'Y-m-d'
                 $inicio = $hoje;
                 $fim = $hoje;
                 break;
@@ -57,13 +54,13 @@ class PaymentsController extends Controller
 
         $Recebidos = Payment::where('user_id', Auth::id())
             ->where('status', 'Pago')
-            ->whereDate('created_at', '=', $hoje) // Aplicando o filtro de data antes do sum
-            ->sum('valor_debito');  // Não precisa do ->first() aqui
+            ->whereBetween('created_at', [$inicio, $fim])
+            ->sum('valor_debito');
 
         $pendente = Payment::where('user_id', Auth::id())
             ->where('status', 'Pendente')
             ->whereBetween('created_at', [$inicio, $fim])
-            ->sum('valor_debito');  // Também não precisa do ->first() aqui
+            ->sum('valor_debito');
 
         return response()->json([
             'success' => true,
@@ -74,9 +71,6 @@ class PaymentsController extends Controller
                 'pendente' => $pendente,
             ],
         ]);
-
-
-
     }
 
     public function update(Payment $payment, Request $request): JsonResponse
