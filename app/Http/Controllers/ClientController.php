@@ -362,6 +362,35 @@ class ClientController extends Controller
             'client' => $cliente
         ], 200);
     }
+//    public function cobranca(): JsonResponse
+//    {
+//        $horaAtual = Carbon::now()->format('H:i');
+//        $clientes = Client::where('status', 'Ativo')
+//            ->where('cobrar', false)
+//            ->with('user.settings')
+//            ->get()
+//            ->filter(function ($cliente) {
+//                // Verifica se a data atual + $cliente->avisar dias é igual ao vencimento
+//                return Carbon::parse($cliente->vencimento)
+//                    ->isSameDay(Carbon::today()->addDays($cliente->avisar ?? 0));
+//            });
+//
+//        //enviar msg de cobrança para whatsapp
+//        foreach ($clientes as $index => $cliente) {
+//            if ($cliente->user->settings->time_cobranca < $horaAtual) {
+//                dispatch(new EnviarMensagemWhatsApp($cliente->id))->delay(
+//                    now()->addSeconds($index * 10)
+//                ); // envia um a cada 10s
+//            }
+//        }
+//        //fim
+//
+//        return response()->json([
+//            'success' => true,
+//            'clients' => $clientes
+//        ]);
+//    }
+
     public function cobranca(): JsonResponse
     {
         $horaAtual = Carbon::now()->format('H:i');
@@ -375,20 +404,66 @@ class ClientController extends Controller
                     ->isSameDay(Carbon::today()->addDays($cliente->avisar ?? 0));
             });
 
-        //enviar msg de cobrança para whatsapp
-        foreach ($clientes as $index => $cliente) {
-            if ($cliente->user->settings->time_cobranca < $horaAtual) {
-                dispatch(new EnviarMensagemWhatsApp($cliente->id))->delay(
-                    now()->addSeconds($index * 10)
-                ); // envia um a cada 10s
-            }
-        }
-        //fim
+        foreach ($clientes as $cliente) {
+            $vencimentoAtual = Carbon::parse($cliente->vencimento);
+            $novoVencimento = $vencimentoAtual; // Inicializa com o vencimento atual
 
-        return response()->json([
-            'success' => true,
-            'clients' => $clientes
-        ]);
+            if ($cliente->user->settings->time_cobranca < $horaAtual) {
+
+                switch ($cliente->type_cobranca) {
+                    case 'MENSAL':
+                        $novoVencimento = $vencimentoAtual->addMonth();
+                        break;
+
+                    case 'BIMESTRAL':
+                        $novoVencimento = $vencimentoAtual->addMonths(2);
+                        break;
+
+                    case 'TRIMESTRAL':
+                        $novoVencimento = $vencimentoAtual->addMonths(3);
+                        break;
+
+                    case 'SEMESTRAL':
+                        $novoVencimento = $vencimentoAtual->addMonths(6);
+                        break;
+
+                    case 'ANUAL':
+                        $novoVencimento = $vencimentoAtual->addYear();
+                        break;
+
+                    default:
+                        // Opcional: lançar uma exceção ou logar o erro
+                        break;
+                }
+
+                $dados = [
+                    'message' => $cliente->msg_enviar ?? 'Mensagem padrão de cobrança',
+                    'phone_cliente' => $cliente->phone,
+                    'token' => $cliente->user->username,
+                ];
+
+                try {
+                    $this->quepasa->sendTextService($dados);
+                } catch (\Exception $e) {
+                    // Opcional: logar erro de envio
+                    return response()->json(['error' => 'Erro ao enviar mensagem'], 500);
+                }
+            }
+
+            $cliente->update([
+                'vencimento' => $novoVencimento,
+                'cobrar' => true,
+            ]);
+
+            $cliente->payments()->create([
+                'user_id' => $cliente->user_id,
+                'data_criado' => Carbon::today()->toDateString(),
+                'valor_debito' => $cliente->value_mensalidade,
+                'tipo_pagamento' => $cliente->preferencia,
+            ]);
+        }
+
+        return response()->json(['success' => true], 200);
     }
 
     public function destroy(Client $client): JsonResponse
