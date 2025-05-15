@@ -448,19 +448,21 @@ class ClientController extends Controller
                     // Opcional: logar erro de envio
                     return response()->json(['error' => 'Erro ao enviar mensagem'], 500);
                 }
+
+                $cliente->update([
+                    'vencimento' => $novoVencimento,
+
+                ]);
+
+                $cliente->payments()->create([
+                    'user_id' => $cliente->user_id,
+                    'data_criado' => Carbon::today()->toDateString(),
+                    'valor_debito' => $cliente->value_mensalidade,
+                    'tipo_pagamento' => $cliente->preferencia,
+                ]);
             }
 
-            $cliente->update([
-                'vencimento' => $novoVencimento,
 
-            ]);
-
-            $cliente->payments()->create([
-                'user_id' => $cliente->user_id,
-                'data_criado' => Carbon::today()->toDateString(),
-                'valor_debito' => $cliente->value_mensalidade,
-                'tipo_pagamento' => $cliente->preferencia,
-            ]);
 
             // Pausa de 2 segundos entre cada envio
             sleep(5);
