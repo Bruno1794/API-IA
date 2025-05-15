@@ -479,6 +479,7 @@ class ClientController extends Controller
         // Filtrar apenas clientes cujo horário de cobrança já passou
         $clientes = Client::where('status', 'Ativo')
             ->where('cobrar', false)
+            ->where('is_processing', false)  // Apenas clientes que não estão em processamento
             ->with('user.settings')
             ->get()
             ->filter(function ($cliente) use ($horaAtual) {
@@ -498,6 +499,9 @@ class ClientController extends Controller
         }
 
         foreach ($clientes as $cliente) {
+            // Marca o cliente como em processamento para evitar duplicidade
+            $cliente->update(['is_processing' => true]);
+
             $vencimentoAtual = Carbon::parse($cliente->vencimento);
             $novoVencimento = $vencimentoAtual;
 
@@ -528,29 +532,32 @@ class ClientController extends Controller
 
             try {
                 $this->quepasa->sendTextService($dados);
+
+                // Atualiza o vencimento e cria o pagamento
+                $cliente->update([
+                    'vencimento' => $novoVencimento,
+                ]);
+
+                $cliente->payments()->create([
+                    'user_id' => $cliente->user_id,
+                    'data_criado' => Carbon::today()->toDateString(),
+                    'valor_debito' => $cliente->value_mensalidade,
+                    'tipo_pagamento' => $cliente->preferencia,
+                ]);
+
+                // Pausa de 5 segundos entre cada envio
+                sleep(5);
+
             } catch (\Exception $e) {
                 return response()->json(['error' => 'Erro ao enviar mensagem'], 500);
+            } finally {
+                // Garante que o processamento será finalizado, mesmo em caso de erro
+                $cliente->update(['is_processing' => false]);
             }
-
-            // Atualiza o vencimento e cria o pagamento
-            $cliente->update([
-                'vencimento' => $novoVencimento,
-            ]);
-
-            $cliente->payments()->create([
-                'user_id' => $cliente->user_id,
-                'data_criado' => Carbon::today()->toDateString(),
-                'valor_debito' => $cliente->value_mensalidade,
-                'tipo_pagamento' => $cliente->preferencia,
-            ]);
-
-            // Pausa de 5 segundos entre cada envio
-            sleep(5);
         }
 
         return response()->json(['success' => true], 200);
     }
-
 
     public function destroy(Client $client): JsonResponse
     {
