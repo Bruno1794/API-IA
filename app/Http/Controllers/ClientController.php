@@ -90,11 +90,15 @@ class ClientController extends Controller
                 break;
         }
 
-        // Contagem de clientes novos (criados no intervalo especificado)
-        $clientesNovos = Client::where('user_id', Auth::id())
-            ->where('status', 'Ativo')
-            ->whereBetween('created_at', [$inicio, $fim])
-            ->count();
+        // Contagem de clientes novos (zero para semanal, mensal e anual)
+        if (in_array($filtro, ['semanal', 'mensal', 'anual'])) {
+            $clientesNovos = 0;
+        } else {
+            $clientesNovos = Client::where('user_id', Auth::id())
+                ->where('status', 'Ativo')
+                ->whereBetween('created_at', [$inicio, $fim])
+                ->count();
+        }
 
         // Contagem de clientes ativos (clientes criados antes do dia atual e com status ATIVO)
         $clientesAtivos = Client::where('user_id', Auth::id())
