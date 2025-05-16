@@ -56,53 +56,50 @@ class ClientController extends Controller
         ], 200);
     }
 
-    public function listCont():JsonResponse
+    public function listCont(): JsonResponse
     {
-
         $filtro = request()->input('filtro', 'hoje');
-        // Data atual
-        $hoje = Carbon::now()->format('Y-m-d');  // Aqui estamos pegando só a data
-
+        $hoje = Carbon::now();  // Obtendo a data e hora atual
 
         // Define o intervalo de datas com base no filtro
         switch (strtolower($filtro)) {
-            case 'Semanal':
-                $inicio = Carbon::parse($hoje)->startOfWeek()->format('Y-m-d');
-                $fim = Carbon::parse($hoje)->endOfWeek()->format('Y-m-d');
+            case 'semanal':
+                $inicio = $hoje->copy()->startOfWeek();
+                $fim = $hoje->copy()->endOfWeek();
                 break;
 
-            case 'Mensal':
-                $inicio = Carbon::parse($hoje)->startOfMonth()->format('Y-m-d');
-                $fim = Carbon::parse($hoje)->endOfMonth()->format('Y-m-d');
+            case 'mensal':
+                $inicio = $hoje->copy()->startOfMonth();
+                $fim = $hoje->copy()->endOfMonth();
                 break;
 
-            case 'Anual':
-                $inicio = Carbon::parse($hoje)->startOfYear()->format('Y-m-d');
-                $fim = Carbon::parse($hoje)->endOfYear()->format('Y-m-d');
+            case 'anual':
+                $inicio = $hoje->copy()->startOfYear();
+                $fim = $hoje->copy()->endOfYear();
                 break;
 
             case 'hoje':
             default:
-                // Apenas o dia de hoje, no formato 'Y-m-d'
-                $inicio = $hoje;
-                $fim = $hoje;
+                $inicio = $hoje->copy()->startOfDay();
+                $fim = $hoje->copy()->endOfDay();
                 break;
         }
 
         // Contagem de clientes novos (criados no intervalo especificado)
-        $clientesNovos = Client::where('user_id', Auth::id())->where('status','Ativo')
-            ->whereDate('created_at', '=', $hoje) // Usando o formato 'Y-m-d'
+        $clientesNovos = Client::where('user_id', Auth::id())
+            ->where('status', 'Ativo')
+            ->whereBetween('created_at', [$inicio, $fim])
             ->count();
 
-        // Contagem de clientes ativos (clientes criados antes de hoje e com status ATIVO)
+        // Contagem de clientes ativos (clientes criados antes do dia atual e com status ATIVO)
         $clientesAtivos = Client::where('user_id', Auth::id())
-            ->where('status', 'ATIVO')
-            ->whereDate('created_at', '<', $hoje)
+            ->where('status', 'Ativo')
+            ->whereDate('created_at', '<', $hoje->copy()->startOfDay())
             ->count();
 
         // Contagem de clientes inativos
         $clientesInativos = Client::where('user_id', Auth::id())
-            ->where('status', 'INATIVO')
+            ->where('status', 'Inativo')
             ->count();
 
         return response()->json([
@@ -114,8 +111,8 @@ class ClientController extends Controller
                 'inativos' => $clientesInativos,
             ],
         ]);
-
     }
+
 
     public function listClientNew(Request $request): JsonResponse
     {
@@ -499,8 +496,15 @@ class ClientController extends Controller
         }
 
         foreach ($clientes as $cliente) {
-            // Marca o cliente como em processamento para evitar duplicidade
-            $cliente->update(['is_processing' => true]);
+            // Tenta marcar o cliente como em processamento de forma segura (retorna 1 se atualizado)
+            $atualizado = Client::where('id', $cliente->id)
+                ->where('is_processing', false)
+                ->update(['is_processing' => true]);
+
+            // Se não conseguiu atualizar, significa que já está sendo processado
+            if ($atualizado === 0) {
+                continue;
+            }
 
             $vencimentoAtual = Carbon::parse($cliente->vencimento);
             $novoVencimento = $vencimentoAtual;
@@ -558,6 +562,7 @@ class ClientController extends Controller
 
         return response()->json(['success' => true], 200);
     }
+
 
     public function destroy(Client $client): JsonResponse
     {
