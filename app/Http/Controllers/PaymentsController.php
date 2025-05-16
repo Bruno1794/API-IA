@@ -11,6 +11,37 @@ use Illuminate\Support\Facades\Auth;
 class PaymentsController extends Controller
 {
     //
+    public function index(): JsonResponse
+    {
+        $user = Auth::user();
+
+        // Captura os campos de pesquisa e status
+        $pesquisa = strtolower(request()->input('pesquisa'));
+        $status = ucfirst(strtolower(request()->input('status', 'pendente'))); // Status padrão: PENDENTE
+
+        // Inicia a query com o usuário autenticado
+        $query = Payment::with('client')
+            ->where('user_id', $user->id)
+            ->where('status', $status);  // Filtra pelo status
+
+        // Aplica o filtro de pesquisa em nome ou telefone
+        if (!empty($pesquisa)) {
+            $query->where(function ($q) use ($pesquisa) {
+                $q->orWhereHas('client', function ($query) use ($pesquisa) {
+                    $query->where('name', 'LIKE', '%' . $pesquisa . '%')     // Nome do cliente
+                    ->orWhere('phone', 'LIKE', '%' . $pesquisa . '%'); // Telefone do cliente
+                });
+            });
+        }
+
+        // Ordena por data de criação e pagina os resultados
+        $pagamentos = $query->orderBy('data_criado', 'asc')->paginate(10);
+
+        return response()->json([
+            'success' => true,
+            'pagamentos' => $pagamentos
+        ], 200);
+    }
 
     public function filtroPagamentos(): JsonResponse
     {
@@ -116,6 +147,7 @@ class PaymentsController extends Controller
             ]
         );
     }
+
     public function destroy(Payment $payment): JsonResponse
     {
         $userLogado = Auth::user();
@@ -129,10 +161,8 @@ class PaymentsController extends Controller
         return response()->json([
             'success' => true,
             'data' => $payment,
-        ],200);
-
+        ], 200);
     }
-
 
 
 }

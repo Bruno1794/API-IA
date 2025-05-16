@@ -50,6 +50,7 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
     Route::get('payments/{client}', [\App\Http\Controllers\ClientController::class, 'payments']);
 
     ## Pagamentos
+    Route::get('pagamentos', [\App\Http\Controllers\PaymentsController::class, 'index']);
     Route::get('pagamentos-dados', [\App\Http\Controllers\PaymentsController::class, 'filtroPagamentos']);
     Route::put('pagamentos/{payment}', [\App\Http\Controllers\PaymentsController::class, 'update']);
     Route::delete('pagamentos/{payment}', [\App\Http\Controllers\PaymentsController::class, 'destroy']);
