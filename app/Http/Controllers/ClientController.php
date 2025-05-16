@@ -58,50 +58,48 @@ class ClientController extends Controller
 
     public function listCont(): JsonResponse
     {
-        $filtro = request()->input('filtro', 'hoje');
-        $hoje = Carbon::now();  // Obtendo a data e hora atual
+        $filtro = strtolower(request()->input('filtro', 'hoje'));
+        $hoje = Carbon::now();  // Data e hora atual
 
         // Define o intervalo de datas com base no filtro
-        switch (strtolower($filtro)) {
-
+        switch ($filtro) {
             case 'ontem':
                 $inicio = Carbon::yesterday()->startOfDay();
                 $fim = Carbon::yesterday()->endOfDay();
                 break;
 
             case 'semanal':
-                $inicio = $hoje->copy()->startOfWeek();
-                $fim = $hoje->copy()->endOfWeek();
+                $inicio = Carbon::now()->startOfWeek();
+                $fim = Carbon::now()->endOfWeek();
                 break;
 
             case 'mensal':
-                $inicio = $hoje->copy()->startOfMonth();
-                $fim = $hoje->copy()->endOfMonth();
+                $inicio = Carbon::now()->startOfMonth();
+                $fim = Carbon::now()->endOfMonth();
                 break;
 
             case 'anual':
-                $inicio = $hoje->copy()->startOfYear();
-                $fim = $hoje->copy()->endOfYear();
+                $inicio = Carbon::now()->startOfYear();
+                $fim = Carbon::now()->endOfYear();
                 break;
 
             case 'hoje':
             default:
-                $inicio = $hoje->copy()->startOfDay();
-                $fim = $hoje->copy()->endOfDay();
+                $inicio = Carbon::now()->startOfDay();
+                $fim = Carbon::now()->endOfDay();
                 break;
         }
 
         // Contagem de clientes novos (criados no intervalo especificado)
-        if($filtro === "ontem" || $filtro === "hoje"){
         $clientesNovos = Client::where('user_id', Auth::id())
             ->where('status', 'Ativo')
             ->whereBetween('created_at', [$inicio, $fim])
             ->count();
-        }
+
         // Contagem de clientes ativos (clientes criados antes do dia atual e com status ATIVO)
         $clientesAtivos = Client::where('user_id', Auth::id())
             ->where('status', 'Ativo')
-            ->whereDate('created_at', '<', $hoje->copy()->startOfDay())
+            ->whereDate('created_at', '<', Carbon::now()->startOfDay())
             ->count();
 
         // Contagem de clientes inativos
@@ -113,12 +111,13 @@ class ClientController extends Controller
             'success' => true,
             'filtro' => ucfirst($filtro),
             'clientes' => [
-                'novos' => $clientesNovos ?? "0",
+                'novos' => $clientesNovos,
                 'ativos' => $clientesAtivos,
                 'inativos' => $clientesInativos,
             ],
         ]);
     }
+
 
 
 
