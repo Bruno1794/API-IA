@@ -92,11 +92,12 @@ class ClientController extends Controller
         }
 
         // Contagem de clientes novos (criados no intervalo especificado)
+        if($filtro === "ontem" || $filtro === "hoje"){
         $clientesNovos = Client::where('user_id', Auth::id())
             ->where('status', 'Ativo')
             ->whereBetween('created_at', [$inicio, $fim])
             ->count();
-
+        }
         // Contagem de clientes ativos (clientes criados antes do dia atual e com status ATIVO)
         $clientesAtivos = Client::where('user_id', Auth::id())
             ->where('status', 'Ativo')
@@ -112,7 +113,7 @@ class ClientController extends Controller
             'success' => true,
             'filtro' => ucfirst($filtro),
             'clientes' => [
-                'novos' => $clientesNovos,
+                'novos' => $clientesNovos ?? "0",
                 'ativos' => $clientesAtivos,
                 'inativos' => $clientesInativos,
             ],
