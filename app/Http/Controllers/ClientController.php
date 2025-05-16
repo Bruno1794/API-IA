@@ -63,6 +63,12 @@ class ClientController extends Controller
 
         // Define o intervalo de datas com base no filtro
         switch (strtolower($filtro)) {
+
+            case 'ontem':
+                $inicio = Carbon::yesterday()->format('Y-m-d');
+                $fim = Carbon::yesterday()->format('Y-m-d');
+                break;
+
             case 'semanal':
                 $inicio = $hoje->copy()->startOfWeek();
                 $fim = $hoje->copy()->endOfWeek();
@@ -315,7 +321,6 @@ class ClientController extends Controller
 
     public function storeWhats(Request $request): JsonResponse
     {
-
         $dadosAdmin = User::with('settings')
             ->where('phone', Str::before($request->phone, ':'))->first();
 
@@ -388,86 +393,86 @@ class ClientController extends Controller
 //        ]);
 //    }
 
-  /*  public function cobranca(): JsonResponse
-    {
-        $horaAtual = Carbon::now()->format('H:i');
-        $clientes = Client::where('status', 'Ativo')
-            ->where('cobrar', false)
-            ->with('user.settings')
-            ->get()
-            ->filter(function ($cliente) {
-                // Verifica se a data atual + $cliente->avisar dias é igual ao vencimento
-                return Carbon::parse($cliente->vencimento)
-                    ->isSameDay(Carbon::today()->addDays($cliente->avisar ?? 0));
-            });
+    /*  public function cobranca(): JsonResponse
+      {
+          $horaAtual = Carbon::now()->format('H:i');
+          $clientes = Client::where('status', 'Ativo')
+              ->where('cobrar', false)
+              ->with('user.settings')
+              ->get()
+              ->filter(function ($cliente) {
+                  // Verifica se a data atual + $cliente->avisar dias é igual ao vencimento
+                  return Carbon::parse($cliente->vencimento)
+                      ->isSameDay(Carbon::today()->addDays($cliente->avisar ?? 0));
+              });
 
 
-        foreach ($clientes as $cliente) {
-            $vencimentoAtual = Carbon::parse($cliente->vencimento);
-            $novoVencimento = $vencimentoAtual; // Inicializa com o vencimento atual
+          foreach ($clientes as $cliente) {
+              $vencimentoAtual = Carbon::parse($cliente->vencimento);
+              $novoVencimento = $vencimentoAtual; // Inicializa com o vencimento atual
 
-            if ($cliente->user->settings->time_cobranca < $horaAtual) {
+              if ($cliente->user->settings->time_cobranca < $horaAtual) {
 
-                switch ($cliente->type_cobranca) {
-                    case 'MENSAL':
-                        $novoVencimento = $vencimentoAtual->addMonth();
-                        break;
+                  switch ($cliente->type_cobranca) {
+                      case 'MENSAL':
+                          $novoVencimento = $vencimentoAtual->addMonth();
+                          break;
 
-                    case 'BIMESTRAL':
-                        $novoVencimento = $vencimentoAtual->addMonths(2);
-                        break;
+                      case 'BIMESTRAL':
+                          $novoVencimento = $vencimentoAtual->addMonths(2);
+                          break;
 
-                    case 'TRIMESTRAL':
-                        $novoVencimento = $vencimentoAtual->addMonths(3);
-                        break;
+                      case 'TRIMESTRAL':
+                          $novoVencimento = $vencimentoAtual->addMonths(3);
+                          break;
 
-                    case 'SEMESTRAL':
-                        $novoVencimento = $vencimentoAtual->addMonths(6);
-                        break;
+                      case 'SEMESTRAL':
+                          $novoVencimento = $vencimentoAtual->addMonths(6);
+                          break;
 
-                    case 'ANUAL':
-                        $novoVencimento = $vencimentoAtual->addYear();
-                        break;
+                      case 'ANUAL':
+                          $novoVencimento = $vencimentoAtual->addYear();
+                          break;
 
-                    default:
-                        // Opcional: lançar uma exceção ou logar o erro
-                        break;
-                }
+                      default:
+                          // Opcional: lançar uma exceção ou logar o erro
+                          break;
+                  }
 
-                $dados = [
-                    'message' => $cliente->msg_enviar ?? 'Mensagem padrão de cobrança',
-                    'phone_cliente' => $cliente->phone,
-                    'token' => $cliente->user->username,
-                ];
+                  $dados = [
+                      'message' => $cliente->msg_enviar ?? 'Mensagem padrão de cobrança',
+                      'phone_cliente' => $cliente->phone,
+                      'token' => $cliente->user->username,
+                  ];
 
-                try {
-                    $this->quepasa->sendTextService($dados);
-                } catch (\Exception $e) {
-                    // Opcional: logar erro de envio
-                    return response()->json(['error' => 'Erro ao enviar mensagem'], 500);
-                }
+                  try {
+                      $this->quepasa->sendTextService($dados);
+                  } catch (\Exception $e) {
+                      // Opcional: logar erro de envio
+                      return response()->json(['error' => 'Erro ao enviar mensagem'], 500);
+                  }
 
-                $cliente->update([
-                    'vencimento' => $novoVencimento,
+                  $cliente->update([
+                      'vencimento' => $novoVencimento,
 
-                ]);
+                  ]);
 
-                $cliente->payments()->create([
-                    'user_id' => $cliente->user_id,
-                    'data_criado' => Carbon::today()->toDateString(),
-                    'valor_debito' => $cliente->value_mensalidade,
-                    'tipo_pagamento' => $cliente->preferencia,
-                ]);
-            }
+                  $cliente->payments()->create([
+                      'user_id' => $cliente->user_id,
+                      'data_criado' => Carbon::today()->toDateString(),
+                      'valor_debito' => $cliente->value_mensalidade,
+                      'tipo_pagamento' => $cliente->preferencia,
+                  ]);
+              }
 
 
 
-            // Pausa de 2 segundos entre cada envio
-            sleep(5);
-        }
+              // Pausa de 2 segundos entre cada envio
+              sleep(5);
+          }
 
-        return response()->json(['success' => true], 200);
-    }*/
+          return response()->json(['success' => true], 200);
+      }*/
 
     public function cobranca(): JsonResponse
     {
@@ -492,7 +497,8 @@ class ClientController extends Controller
 
         // Se não houver clientes que atendem aos critérios, retornar sucesso
         if ($clientes->isEmpty()) {
-            return response()->json(['success' => false, 'message' => 'Nenhuma cobrança a ser realizada no momento.'], 200);
+            return response()->json(['success' => false, 'message' => 'Nenhuma cobrança a ser realizada no momento.'],
+                200);
         }
 
         foreach ($clientes as $cliente) {
@@ -551,7 +557,6 @@ class ClientController extends Controller
 
                 // Pausa de 5 segundos entre cada envio
                 sleep(5);
-
             } catch (\Exception $e) {
                 return response()->json(['error' => 'Erro ao enviar mensagem'], 500);
             } finally {

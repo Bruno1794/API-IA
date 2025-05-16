@@ -49,23 +49,25 @@ class PaymentsController extends Controller
                 break;
         }
 
-        // Verifica se é o filtro "hoje" para usar whereDate
-        if ($filtro === 'hoje') {
+        // Verifica se é o filtro "hoje" ou "ontem" para usar whereDate
+        if (in_array($filtro, ['hoje', 'ontem'])) {
+            $data = $filtro === 'hoje' ? $hoje : Carbon::yesterday()->format('Y-m-d');
+
             $qtd = Payment::where('user_id', Auth::id())
-                ->whereDate('created_at', $hoje)
+                ->whereDate('created_at', $data)
                 ->count();
 
             $Recebidos = Payment::where('user_id', Auth::id())
                 ->where('status', 'Pago')
-                ->whereDate('created_at', $hoje)
+                ->whereDate('created_at', $data)
                 ->sum('valor_debito');
 
             $pendente = Payment::where('user_id', Auth::id())
                 ->where('status', 'Pendente')
-                ->whereDate('created_at', $hoje)
+                ->whereDate('created_at', $data)
                 ->sum('valor_debito');
         } else {
-            // Consulta para os demais filtros (ontem, semanal, mensal, anual)
+            // Consulta para os demais filtros (semanal, mensal, anual)
             $qtd = Payment::where('user_id', Auth::id())
                 ->whereBetween('created_at', [$inicio, $fim])
                 ->count();
