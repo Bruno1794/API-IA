@@ -65,8 +65,8 @@ class ClientController extends Controller
         switch (strtolower($filtro)) {
 
             case 'ontem':
-                $inicio = Carbon::yesterday()->format('Y-m-d');
-                $fim = Carbon::yesterday()->format('Y-m-d');
+                $inicio = Carbon::yesterday()->startOfDay();
+                $fim = Carbon::yesterday()->endOfDay();
                 break;
 
             case 'semanal':
@@ -118,6 +118,7 @@ class ClientController extends Controller
             ],
         ]);
     }
+
 
 
     public function listClientNew(Request $request): JsonResponse
