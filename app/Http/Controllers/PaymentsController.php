@@ -90,12 +90,12 @@ class PaymentsController extends Controller
 
             $Recebidos = Payment::where('user_id', Auth::id())
                 ->where('status', 'Pago')
-                ->whereDate('created_at', $data)
+                ->whereDate('data_pagamento', $data)
                 ->sum('valor_debito');
 
             $pendente = Payment::where('user_id', Auth::id())
                 ->where('status', 'Pendente')
-                ->whereDate('created_at', $data)
+                ->whereDate('data_criado', $data)
                 ->sum('valor_debito');
         } else {
             // Consulta para os demais filtros (semanal, mensal, anual)
@@ -105,12 +105,12 @@ class PaymentsController extends Controller
 
             $Recebidos = Payment::where('user_id', Auth::id())
                 ->where('status', 'Pago')
-                ->whereBetween('created_at', [$inicio, $fim])
+                ->whereBetween('data_pagamento', [$inicio, $fim])
                 ->sum('valor_debito');
 
             $pendente = Payment::where('user_id', Auth::id())
                 ->where('status', 'Pendente')
-                ->whereBetween('created_at', [$inicio, $fim])
+                ->whereBetween('data_criado', [$inicio, $fim])
                 ->sum('valor_debito');
         }
 
