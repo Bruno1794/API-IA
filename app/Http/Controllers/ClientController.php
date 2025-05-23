@@ -566,7 +566,10 @@ class ClientController extends Controller
                 return response()->json(['error' => 'Erro ao enviar mensagem'], 500);
             } finally {
                 // Garante que o processamento será finalizado, mesmo em caso de erro
-                $cliente->update(['is_processing' => false]);
+                //$cliente->update(['is_processing' => false]);
+
+                $cliente->is_processing = false;
+                $cliente->save();
             }
         }
 
