@@ -63,7 +63,7 @@ class QuepasaService
         ])
             ->post("{$this->baseUrl}/v3/bot/" . $token . "/webhook", [
                 //"url" => "http://n8npay.zapto.org:5678/webhook/6149f2e4-b726-4592-83d0-21db5f120de8",
-                "url" => "http://192.168.0.220:5678/webhook-test/8a78b727-2eb5-4cc4-8b8b-fbda6afcd024",
+                "url" => "http://n8npay.zapto.org:5678/webhook/6149f2e4-b726-4592-83d0-21db5f120de8",
                 "forwardinternal" => false,
             ],);
 
