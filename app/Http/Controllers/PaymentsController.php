@@ -28,7 +28,7 @@ class PaymentsController extends Controller
         if (!empty($pesquisa)) {
             $query->where(function ($q) use ($pesquisa) {
                 $q->orWhereHas('client', function ($query) use ($pesquisa) {
-                    $query->where('name', 'LIKE', '%' . $pesquisa . '%')     // Nome do cliente
+                    $query->where('referencia', 'LIKE', '%' . $pesquisa . '%')     // Nome do cliente
                     ->orWhere('phone', 'LIKE', '%' . $pesquisa . '%'); // Telefone do cliente
                 });
             });
