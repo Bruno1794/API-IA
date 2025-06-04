@@ -7,6 +7,9 @@ use Illuminate\Support\Facades\Route;
 ##login
 Route::post('login', [\App\Http\Controllers\LoginController::class, 'login'])->name('login');
 
+##Cadastrar LED
+Route::post('usuarios-lead', [\App\Http\Controllers\UserController::class, 'storeLed']);
+
 
 ## Clientes
 Route::post('clientes', [\App\Http\Controllers\ClientController::class, 'storeWhats']);
