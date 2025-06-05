@@ -123,8 +123,6 @@ class ClientController extends Controller
     }
 
 
-
-
     public function listClientNew(Request $request): JsonResponse
     {
         $user = Auth::user();
@@ -500,6 +498,7 @@ class ClientController extends Controller
                     ->isSameDay(Carbon::today()->addDays($cliente->avisar ?? 0));
             });
 
+
         // Se não houver clientes que atendem aos critérios, retornar sucesso
         if ($clientes->isEmpty()) {
             return response()->json(['success' => false, 'message' => 'Nenhuma cobrança a ser realizada no momento.'],
@@ -546,22 +545,24 @@ class ClientController extends Controller
             ];
 
             try {
-                $this->quepasa->sendTextService($dados);
+                $status = $this->quepasa->statusService($cliente->user->username);
+                if ($status === "Ready") {
+                    $this->quepasa->sendTextService($dados);
+                    // Atualiza o vencimento e cria o pagamento
+                    $cliente->update([
+                        'vencimento' => $novoVencimento,
+                    ]);
 
-                // Atualiza o vencimento e cria o pagamento
-                $cliente->update([
-                    'vencimento' => $novoVencimento,
-                ]);
+                    $cliente->payments()->create([
+                        'user_id' => $cliente->user_id,
+                        'data_criado' => Carbon::today()->toDateString(),
+                        'valor_debito' => $cliente->value_mensalidade,
+                        'tipo_pagamento' => $cliente->preferencia,
+                    ]);
 
-                $cliente->payments()->create([
-                    'user_id' => $cliente->user_id,
-                    'data_criado' => Carbon::today()->toDateString(),
-                    'valor_debito' => $cliente->value_mensalidade,
-                    'tipo_pagamento' => $cliente->preferencia,
-                ]);
-
-                // Pausa de 5 segundos entre cada envio
-                sleep(5);
+                    // Pausa de 5 segundos entre cada envio
+                    sleep(5);
+                }
             } catch (\Exception $e) {
                 return response()->json(['error' => 'Erro ao enviar mensagem'], 500);
             } finally {
