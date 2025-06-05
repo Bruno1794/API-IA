@@ -55,6 +55,7 @@ class EnviarNotificacaoJob implements ShouldQueue
                     '[vencimento]' => Carbon::parse($cliente->vencimento)->format('d/m/Y'),
                     '[telefone]' => $cliente->phone,
                     '[tipo_cobranca]' => $cliente->type_cobranca,
+                    '[valor]' => $cliente->value_mensalidade,
                 ];
 
                 $mensagem = str_replace(

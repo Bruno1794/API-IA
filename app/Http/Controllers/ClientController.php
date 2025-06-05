@@ -538,8 +538,23 @@ class ClientController extends Controller
                     break;
             }
 
+            $substituicoes = [
+                '[nome]' => $cliente->name,
+                '[vencimento]' => Carbon::parse($cliente->vencimento)->format('d/m/Y'),
+                '[telefone]' => $cliente->phone,
+                '[tipo_cobranca]' => $cliente->type_cobranca,
+                '[valor]' => $cliente->value_mensalidade,
+            ];
+
+            $mensagem = str_replace(
+                array_keys($substituicoes),
+                array_values($substituicoes),
+                $cliente->user->settings->msg_padrao
+            );
+
+
             $dados = [
-                'message' => $cliente->msg_enviar ?? 'Mensagem padrão de cobrança',
+                'message' => $cliente->user->settings->msg_padrao ? $mensagem :  $cliente->msg_enviar,
                 'phone_cliente' => $cliente->phone,
                 'token' => $cliente->user->username,
             ];
