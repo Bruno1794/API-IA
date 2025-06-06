@@ -114,7 +114,16 @@ class NoticeController extends Controller
 
     public function notifications(): JsonResponse
     {
-        $clientes = Client::select('id', 'user_id', 'name', 'phone', 'vencimento', 'type_cobranca', 'date_desativado')
+        $clientes = Client::select(
+            'id',
+            'user_id',
+            'name',
+            'phone',
+            'vencimento',
+            'type_cobranca',
+            'date_desativado',
+            'value_mensalidade'
+        )
             ->where('status', 'inativo')
             ->with([
                 'user:id,phone,username',
@@ -123,14 +132,47 @@ class NoticeController extends Controller
             ])
             ->get();
 
-        foreach ($clientes as $index => $cliente) {
-            // Disparando o Job para cada cliente inativo
-            EnviarNotificacaoJob::dispatch($cliente)->delay(
-                now()->addSeconds($index * 10)
-            );
+        $notificou = false;
+
+        foreach ($clientes as $cliente) {
+            $diasDesativado = Carbon::parse($cliente->date_desativado)->diffInDays(now());
+            $user = $cliente->user;
+
+            if (!$user->settings || !$user->settings->notificar) {
+                continue;
+            }
+
+            foreach ($user->notices as $notice) {
+                if ((int)$diasDesativado === (int)$notice->day) {
+                    $mensagem = str_replace(
+                        ['[nome]', '[vencimento]', '[telefone]', '[tipo_cobranca]', '[valor]'],
+                        [
+                            $cliente->name,
+                            Carbon::parse($cliente->vencimento)->format('d/m/Y'),
+                            $cliente->phone,
+                            $cliente->type_cobranca,
+                            $cliente->value_mensalidade,
+                        ],
+                        $notice->message
+                    );
+
+                    $this->quepasa->sendTextService([
+                        'phone_cliente' => $cliente->phone,
+                        'message' => $mensagem,
+                        'token' => $user->username,
+                    ]);
+
+                    sleep(2); // Aguarda 2 segundos antes do próximo envio
+                    $notificou = true;
+                    break; // Envia apenas uma notificação por cliente
+                }
+            }
         }
 
-        return response()->json(['success' => true, 'message' => 'Notificações enviadas para processamento.']);
+        return response()->json([
+            'success' => true,
+            'message' => $notificou ? 'Notificações enviadas' : 'Sem notificações'
+        ]);
     }
 
 
