@@ -46,9 +46,9 @@ class QuepasaService
             ->withQueryParameters([
                 'action' => "status"
             ])
-            ->get("{$this->baseUrl}/command");
+            ->get("{$this->baseUrl}/health");
 
-        return $response->json('status');
+        return $response->json('state');
     }
 
     public function webhookService($token)
