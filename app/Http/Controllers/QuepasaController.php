@@ -37,7 +37,7 @@ class QuepasaController extends Controller
         $this->quepasa->webhookService($userLoagado->username);
         return response()->json([
             'success' => true,
-            'status' => $response
+            'state' => $response
         ], 200);
     }
 
