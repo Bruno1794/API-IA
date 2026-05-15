@@ -374,7 +374,7 @@ class ClientController extends Controller
                 $numero = $matches[1];
 
                 $dados = [
-                    'message' => "Para renovar seu serviço é bem simples:\n\n1️⃣ Clique no link abaixo\n2️⃣ Escaneie o QR Code ou copie a chave PIX exibida na página\n3️⃣ Após o pagamento, a confirmação acontece automaticamente ✅\n🔗https://servico.ddns.net/{$cliente->phone}/{$numero}",
+                    'message' => "Para renovar seu serviço é bem simples:\n\n1️⃣ Clique no link abaixo\n2️⃣ Escaneie o QR Code ou copie a chave PIX exibida na página\n3️⃣ Após o pagamento, a confirmação acontece automaticamente ✅\n\n🔗 https://servico.ddns.net/{$cliente->phone}/{$numero}",
                     'phone_cliente' => $cliente->phone,
                     'token' => $cliente->user->username,
                 ];
@@ -815,6 +815,7 @@ class ClientController extends Controller
             'dadosDepix' => $dadosDepix,
         ]);
     }
+
     public function webhooks(Request $request): JsonResponse
     {
         $payload = $request->all();
@@ -871,5 +872,89 @@ class ClientController extends Controller
         ]);
     }
 
+    public function trasacitonFast(Request $request): JsonResponse
+    {
+        // =========================
+        // DEFAULT FILTER (MÊS ATUAL)
+        // =========================
+        $dateFrom = $request->date_from ?? Carbon::now()->startOfMonth()->format('Y-m-d');
+        $dateTo = $request->date_to ?? Carbon::now()->endOfMonth()->format('Y-m-d');
+        $status = $request->status ?? 'paid';
 
+        // =========================
+        // BASE PARAMS
+        // =========================
+        $baseParams = [
+            'status' => $status,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'search' => $request->search ?? "",
+            'per_page' => 100,
+        ];
+
+        // =========================
+        // 1. LISTA PAGINADA (FRONT)
+        // =========================
+        $baseParams['page'] = $request->page ?? 1;
+
+        $dados = $this->fastDepix->listTransctions($baseParams);
+
+        $transactionsPage = collect($dados['data']['transactions'] ?? []);
+
+        $lista = $transactionsPage->map(function ($item) {
+            return [
+                'amount' => $item['amount'] ?? 0,
+                'status' => $item['status'] ?? null,
+                'name' => $item['user']['name'] ?? null,
+                'payer_phone' => $item['payer_phone'] ?? null,
+                'created_at' => $item['created_at'] ?? null,
+            ];
+        })->values();
+
+        // =========================
+        // 2. SOMA GLOBAL (TODAS AS PÁGINAS)
+        // =========================
+        $page = 1;
+        $totalPaid = 0;
+        $totalPages = 1;
+
+        do {
+
+            $params = $baseParams;
+            $params['page'] = $page;
+
+            $response = $this->fastDepix->listTransctions($params);
+
+            $transactions = collect($response['data']['transactions'] ?? []);
+
+            // 🔴 se vier vazio, para loop (proteção)
+            if ($transactions->isEmpty()) {
+                break;
+            }
+
+            $totalPaid += $transactions->sum(function ($item) {
+                return ($item['status'] ?? null) === 'paid'
+                    ? ($item['amount'] ?? 0)
+                    : 0;
+            });
+
+            $totalPages = $response['data']['pagination']['total_pages'] ?? 1;
+
+            $page++;
+
+        } while ($page <= $totalPages);
+
+        // =========================
+        // RESPONSE FINAL
+        // =========================
+        return response()->json([
+            'success' => true,
+            'total_paid' => $totalPaid,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'status' => $status,
+            'pagination' => $dados['data']['pagination'] ?? null,
+            'data' => $lista
+        ]);
+    }
 }

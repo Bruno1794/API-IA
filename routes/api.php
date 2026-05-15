@@ -60,6 +60,10 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
     Route::delete('cleintes-delete/{client}', [\App\Http\Controllers\ClientController::class, 'destroy']);
     Route::get('payments/{client}', [\App\Http\Controllers\ClientController::class, 'payments']);
 
+    #fastdepix
+    Route::get('trasacoes', [\App\Http\Controllers\ClientController::class, 'trasacitonFast']);
+
+
     ## Pagamentos
     Route::get('pagamentos', [\App\Http\Controllers\PaymentsController::class, 'index']);
     Route::get('pagamentos-dados', [\App\Http\Controllers\PaymentsController::class, 'filtroPagamentos']);

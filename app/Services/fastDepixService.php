@@ -17,19 +17,23 @@ class fastDepixService
     }
 
 
-    /*   public function statusService($token)
-       {
-           $response = Http::withHeaders([
-               'X-QUEPASA-TOKEN' => $token
-           ])
-               ->withQueryParameters([
-                   'action' => "status"
-               ])
-               ->get("{$this->baseUrl}/health");
+    public function listTransctions($paramentro)
+    {
+        $response = Http::withHeaders([
+            'Authorization' => "Bearer $this->baseToken"
+        ])
+            ->withQueryParameters([
+                'status' => $paramentro['status'] ?? null,
+                'date_from' => $paramentro['date_from'] ?? null,
+                'date_to' => $paramentro['date_to'] ?? null,
+                'search' => $paramentro['search'] ?? null,
+                'page' => $paramentro['page'] ?? 1,
+                'per_page' => $paramentro['per_page'] ?? 20,
+            ])
+            ->get("{$this->baseUrl}/transactions");
 
-           return $response->json('state');
-       }*/
-
+        return $response->json();
+    }
 
     public function gerarTransction($data)
     {
