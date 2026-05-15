@@ -374,7 +374,7 @@ class ClientController extends Controller
                 $numero = $matches[1];
 
                 $dados = [
-                    'message' => "Para fazer a renovação basta clicar no link abaixo e copiar nossa chave PIX \n\nhttps://servico.ddns.net/{$cliente->phone}/{$numero}",
+                    'message' => "Para renovar seu serviço é bem simples:\n\n1️⃣ Clique no link abaixo\n2️⃣ Escaneie o QR Code ou copie a chave PIX exibida na página\n3️⃣ Após o pagamento, a confirmação acontece automaticamente ✅\n🔗https://servico.ddns.net/{$cliente->phone}/{$numero}",
                     'phone_cliente' => $cliente->phone,
                     'token' => $cliente->user->username,
                 ];
