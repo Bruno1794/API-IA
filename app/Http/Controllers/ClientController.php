@@ -822,8 +822,8 @@ class ClientController extends Controller
         Log::info('FASTDEPIX WEBHOOK RECEBIDO', $payload);
 
         $transactionId =
-            data_get($payload, 'data.depix_transaction_id') ??
             data_get($payload, 'depix_transaction_id') ??
+            data_get($payload, 'data.depix_transaction_id') ??
             data_get($payload, 'transaction_id') ??
             data_get($payload, 'data.transaction_id') ??
             data_get($payload, 'id') ??
