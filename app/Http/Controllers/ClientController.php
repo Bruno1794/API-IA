@@ -768,20 +768,19 @@ class ClientController extends Controller
         $pixExistente = Cache::get($cacheKey);
 
         if ($pixExistente) {
-            $data = data_get($pixExistente, 'dadosDepix.data');
+            $depixId = data_get($pixExistente, 'dadosDepix.data.depix_transaction_id');
 
-            $statusAtual = Cache::get(
-                "fastdepix_status_" . data_get($data, 'depix_transaction_id')
-            );
+            $statusCache = Cache::get("fastdepix_status_{$depixId}");
 
-            $status = data_get($statusAtual, 'status') ?? data_get($data, 'status');
+            $status = data_get($statusCache, 'status')
+                ?? data_get($pixExistente, 'dadosDepix.data.status');
 
             if (!in_array($status, ['paid', 'expired', 'transaction.paid', 'transaction.expired'])) {
                 return response()->json([
                     'success' => true,
                     'reused' => true,
                     'dadosDepix' => data_get($pixExistente, 'dadosDepix'),
-                ], 200);
+                ]);
             }
         }
 
@@ -800,7 +799,8 @@ class ClientController extends Controller
                 'name' => $cliente->referencia ?: $cliente->name,
                 'user_type' => 'individual',
             ],
-            'payer_phone' => $cliente->phone
+            'payer_phone' => $cliente->phone,
+            'notification_url' => 'https://api.codeacode.com.br/api/webhooks/fastdepix',
         ];
 
         $dadosDepix = $this->fastDepix->gerarTransction($dados);
@@ -812,8 +812,8 @@ class ClientController extends Controller
         return response()->json([
             'success' => true,
             'reused' => false,
-            'dadosDepix' => $dadosDepix
-        ], 200);
+            'dadosDepix' => $dadosDepix,
+        ]);
     }
     public function webhooks(Request $request): JsonResponse
     {
