@@ -47,7 +47,7 @@ class fastDepixService
                         'user_type' => 'individual'
                     ],
                     "payer_phone" => $data['payer_phone'],
-                    "notification_url" => "https://servico.ddns.net/webhooks/fastdepix",
+                    "notification_url" => "https://api.codeacode.com.br/api/webhooks/fastdepix",
                 ]);
 
             // Se a resposta for sucesso (status 2xx), retorna o JSON direto

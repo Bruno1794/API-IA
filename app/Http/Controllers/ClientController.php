@@ -760,28 +760,61 @@ class ClientController extends Controller
 
     public function fastDepix(Request $request): JsonResponse
     {
-        //dd($request->phone."-". $request->value_cobranca);
-        $cliente = Client::where('phone', $request->phone)->first();
+        $phone = $request->phone;
+        $valor = $request->value_cobranca;
+
+        $cacheKey = "fastdepix_pix_{$phone}_{$valor}";
+
+        $pixExistente = Cache::get($cacheKey);
+
+        if ($pixExistente) {
+            $data = data_get($pixExistente, 'dadosDepix.data');
+
+            $statusAtual = Cache::get(
+                "fastdepix_status_" . data_get($data, 'depix_transaction_id')
+            );
+
+            $status = data_get($statusAtual, 'status') ?? data_get($data, 'status');
+
+            if (!in_array($status, ['paid', 'expired', 'transaction.paid', 'transaction.expired'])) {
+                return response()->json([
+                    'success' => true,
+                    'reused' => true,
+                    'dadosDepix' => data_get($pixExistente, 'dadosDepix'),
+                ], 200);
+            }
+        }
+
+        $cliente = Client::where('phone', $phone)->first();
+
+        if (!$cliente) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cliente não encontrado'
+            ], 404);
+        }
 
         $dados = [
-            'amount' => $request->value_cobranca,
+            'amount' => $valor,
             'user' => [
-                'name' => $cliente->referencia ? $cliente->referencia : $cliente->name,
+                'name' => $cliente->referencia ?: $cliente->name,
                 'user_type' => 'individual',
             ],
-            'payer_phone' => $cliente->phone,
+            'payer_phone' => $cliente->phone
         ];
 
         $dadosDepix = $this->fastDepix->gerarTransction($dados);
 
+        Cache::put($cacheKey, [
+            'dadosDepix' => $dadosDepix
+        ], now()->addMinutes(20));
 
         return response()->json([
             'success' => true,
+            'reused' => false,
             'dadosDepix' => $dadosDepix
         ], 200);
-
     }
-
     public function webhooks(Request $request): JsonResponse
     {
         $payload = $request->all();
