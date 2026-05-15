@@ -39,5 +39,10 @@ return [
         'user' => env('QUEPASA_API_USER'),
 
     ],
+    'fastdepix' => [
+        'urlDepix' => env('DEPIX_API_URL'),
+        'tokenDepix' => env('DEPIX_TOKEN'),
+
+    ],
 
 ];

@@ -6,21 +6,25 @@ use App\Jobs\EnviarMensagemWhatsApp;
 use App\Models\Client;
 use App\Models\Payment;
 use App\Models\User;
+use App\Services\fastDepixService;
 use App\Services\QuepasaService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 class ClientController extends Controller
 {
     //
     protected $quepasa;
+    protected $fastDepix;
 
-    public function __construct(QuepasaService $quepasa)
+    public function __construct(QuepasaService $quepasa, FastDepixService $fastDepix)
     {
         $this->quepasa = $quepasa;
+        $this->fastDepix = $fastDepix;
     }
 
 //   ->when($search, function ($query, $search) {
@@ -278,8 +282,7 @@ class ClientController extends Controller
             'vencimento' => $request->vencimento ?? $client->vencimento,
             'value_mensalidade' => $request->value_mensalidade ?? $client->value_mensalidade,
             'type_cobranca' => $request->type_cobranca ?? $client->type_cobranca,
-            "date_desativado" => $request->status === "Inativo" || $request->status === "Cancelado" ? carbon::now(
-            ) : null,
+            "date_desativado" => $request->status === "Inativo" || $request->status === "Cancelado" ? carbon::now() : null,
         ]);
 
 
@@ -352,6 +355,7 @@ class ClientController extends Controller
         }
 
         if ($request->type === 'text' && $dadosAdmin->settings->cadastro) {
+
             $cliente = Client::firstOrCreate(
                 ['phone' => $phone],
                 [
@@ -361,6 +365,27 @@ class ClientController extends Controller
                 ]
             );
         }
+
+        if ($cliente->status !== "Novo" && !empty($request->renovar)) {
+
+            // 2. O Regex já valida o formato (# + número) e extrai o número de forma segura
+            if (preg_match('/^#(\d+)$/', $request->renovar, $matches)) {
+                $numero = $matches[1];
+
+                $dados = [
+                    'message' => "Para fazer a renovação basta clicar no link abaixo e copiar nossa chave PIX \n\nhttps://servico.ddns.net/{$cliente->phone}/{$numero}",
+                    'phone_cliente' => $cliente->phone,
+                    'token' => $cliente->user->username,
+                ];
+
+                $this->quepasa->sendTextService($dados);
+
+            } else {
+                // Retorno amigável para o usuário ou log em vez de travar o app com dd() em produção
+                return response()->json(['error' => "Formato inválido: {$request->renovar}"], 422);
+            }
+        }
+
 
         return response()->json([
             'success' => true,
@@ -554,7 +579,7 @@ class ClientController extends Controller
 
 
             $dados = [
-                'message' => $cliente->user->settings->msg_padrao ? $mensagem :  $cliente->msg_enviar,
+                'message' => $cliente->user->settings->msg_padrao ? $mensagem : $cliente->msg_enviar,
                 'phone_cliente' => $cliente->phone,
                 'token' => $cliente->user->username,
             ];
@@ -730,6 +755,79 @@ class ClientController extends Controller
             'success' => true,
             'payments' => $pagamentos
         ], 200);
+    }
+
+    public function fastDepix(Request $request): JsonResponse
+    {
+        //dd($request->phone."-". $request->value_cobranca);
+        $cliente = Client::where('phone', $request->phone)->first();
+
+        $dados = [
+            'amount' => $request->value_cobranca,
+            'user' => [
+                'name' => $cliente->referencia ? $cliente->referencia : $cliente->name,
+                'user_type' => 'individual',
+            ],
+            'payer_phone' => $cliente->phone,
+        ];
+
+        $dadosDepix = $this->fastDepix->gerarTransction($dados);
+
+
+        return response()->json([
+            'success' => true,
+            'dadosDepix' => $dadosDepix
+        ], 200);
+
+    }
+
+    public function webhooks(Request $request): JsonResponse
+    {
+        $payload = $request->all();
+
+        $event = $payload['event'] ?? null;
+
+        $data = $payload['data'] ?? [];
+
+        $transactionId =
+            $data['depix_transaction_id'] ??
+            $data['id'] ??
+            $payload['id'] ??
+            null;
+
+        if (!$transactionId) {
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Transaction ID não encontrado'
+            ], 400);
+
+        }
+
+        Cache::put(
+            "fastdepix_status_{$transactionId}",
+            [
+                'event' => $event,
+                'status' => $event,
+                'payload' => $payload,
+                'updated_at' => now()->toDateTimeString(),
+            ],
+            now()->addHours(2)
+        );
+
+        return response()->json([
+            'success' => true,
+            'event' => $event
+        ]);
+    }
+    public function status($transactionId): JsonResponse
+    {
+        $status = Cache::get("fastdepix_status_{$transactionId}");
+
+        return response()->json([
+            'success' => true,
+            'data' => $status
+        ]);
     }
 
 
