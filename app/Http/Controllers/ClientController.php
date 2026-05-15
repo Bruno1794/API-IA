@@ -13,6 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class ClientController extends Controller
@@ -785,48 +786,55 @@ class ClientController extends Controller
     {
         $payload = $request->all();
 
-        $event = $payload['event'] ?? null;
-
-        $data = $payload['data'] ?? [];
+        Log::info('FASTDEPIX WEBHOOK RECEBIDO', $payload);
 
         $transactionId =
-            $data['depix_transaction_id'] ??
-            $data['id'] ??
-            $payload['id'] ??
-            null;
+            data_get($payload, 'data.depix_transaction_id') ??
+            data_get($payload, 'depix_transaction_id') ??
+            data_get($payload, 'transaction_id') ??
+            data_get($payload, 'data.transaction_id') ??
+            data_get($payload, 'id') ??
+            data_get($payload, 'data.id');
+
+        $status =
+            data_get($payload, 'status') ??
+            data_get($payload, 'data.status') ??
+            data_get($payload, 'event');
+
+        $event = data_get($payload, 'event');
 
         if (!$transactionId) {
-
             return response()->json([
                 'success' => false,
-                'message' => 'Transaction ID não encontrado'
+                'message' => 'Transaction ID não encontrado',
+                'payload' => $payload,
             ], 400);
-
         }
 
-        Cache::put(
-            "fastdepix_status_{$transactionId}",
-            [
-                'event' => $event,
-                'status' => $event,
-                'payload' => $payload,
-                'updated_at' => now()->toDateTimeString(),
-            ],
-            now()->addHours(2)
-        );
+        Cache::put("fastdepix_status_{$transactionId}", [
+            'status' => $status,
+            'event' => $event,
+            'transaction_id' => $transactionId,
+            'payload' => $payload,
+            'updated_at' => now()->toDateTimeString(),
+        ], now()->addHours(2));
 
         return response()->json([
             'success' => true,
-            'event' => $event
+            'message' => 'Webhook recebido',
+            'status' => $status,
+            'event' => $event,
+            'transaction_id' => $transactionId,
         ]);
     }
+
     public function status($transactionId): JsonResponse
     {
         $status = Cache::get("fastdepix_status_{$transactionId}");
 
         return response()->json([
             'success' => true,
-            'data' => $status
+            'data' => $status,
         ]);
     }
 
