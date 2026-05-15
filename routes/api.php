@@ -14,10 +14,13 @@ Route::post('usuarios-lead', [\App\Http\Controllers\UserController::class, 'stor
 ## Clientes
 Route::post('clientes', [\App\Http\Controllers\ClientController::class, 'storeWhats']);
 Route::get('cobranca', [\App\Http\Controllers\ClientController::class, 'cobranca']);
+
+Route::get('fast/status/{transactionId}', [\App\Http\Controllers\ClientController::class, 'status']);
+
 Route::get('fast/{phone}/{value_cobranca}', [\App\Http\Controllers\ClientController::class, 'fastDepix']);
+
 Route::post('webhooks/fastdepix', [\App\Http\Controllers\ClientController::class, 'webhooks']);
-Route::get('fast/status/{transactionId}',[\App\Http\Controllers\ClientController::class, 'status']
-);
+
 
 
 
