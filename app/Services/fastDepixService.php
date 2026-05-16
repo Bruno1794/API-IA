@@ -28,7 +28,7 @@ class fastDepixService
                 'date_to' => $paramentro['date_to'] ?? null,
                 'search' => $paramentro['search'] ?? null,
                 'page' => $paramentro['page'] ?? 1,
-                'per_page' => $paramentro['per_page'] ?? 20,
+                'per_page' => $paramentro['per_page'] ?? 10,
             ])
             ->get("{$this->baseUrl}/transactions");
 
