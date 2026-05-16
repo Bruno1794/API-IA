@@ -889,7 +889,7 @@ class ClientController extends Controller
 
         $currentPage = (int) ($request->page ?? 1);
 
-        $perPage = 100;
+        $perPage = 10;
 
         // =========================
         // PARAMS BASE API
