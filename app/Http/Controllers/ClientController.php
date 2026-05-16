@@ -875,48 +875,40 @@ class ClientController extends Controller
     public function trasacitonFast(Request $request): JsonResponse
     {
         // =========================
-        // DEFAULT FILTER (MÊS ATUAL)
+        // FILTROS
         // =========================
-        $dateFrom = $request->date_from ?? Carbon::now()->startOfMonth()->format('Y-m-d');
-        $dateTo = $request->date_to ?? Carbon::now()->endOfMonth()->format('Y-m-d');
+        $dateFrom = $request->date_from
+            ?? Carbon::now()->startOfMonth()->format('Y-m-d');
+
+        $dateTo = $request->date_to
+            ?? Carbon::now()->endOfMonth()->format('Y-m-d');
+
         $status = $request->status ?? 'paid';
 
+        $search = mb_strtolower(trim($request->search ?? ''));
+
+        $currentPage = (int) ($request->page ?? 1);
+
+        $perPage = 100;
+
         // =========================
-        // BASE PARAMS
+        // PARAMS BASE API
+        // (SEM SEARCH)
         // =========================
         $baseParams = [
             'status' => $status,
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
-            'search' => $request->search ?? "",
-            'per_page' => 100,
+            'per_page' => $perPage,
         ];
 
         // =========================
-        // 1. LISTA PAGINADA (FRONT)
-        // =========================
-        $baseParams['page'] = $request->page ?? 1;
-
-        $dados = $this->fastDepix->listTransctions($baseParams);
-
-        $transactionsPage = collect($dados['data']['transactions'] ?? []);
-
-        $lista = $transactionsPage->map(function ($item) {
-            return [
-                'amount' => $item['amount'] ?? 0,
-                'status' => $item['status'] ?? null,
-                'name' => $item['user']['name'] ?? null,
-                'payer_phone' => $item['payer_phone'] ?? null,
-                'created_at' => $item['created_at'] ?? null,
-            ];
-        })->values();
-
-        // =========================
-        // 2. SOMA GLOBAL (TODAS AS PÁGINAS)
+        // BUSCA TODAS AS PÁGINAS
         // =========================
         $page = 1;
-        $totalPaid = 0;
         $totalPages = 1;
+
+        $allTransactions = collect();
 
         do {
 
@@ -925,18 +917,15 @@ class ClientController extends Controller
 
             $response = $this->fastDepix->listTransctions($params);
 
-            $transactions = collect($response['data']['transactions'] ?? []);
+            $transactions = collect(
+                $response['data']['transactions'] ?? []
+            );
 
-            // 🔴 se vier vazio, para loop (proteção)
             if ($transactions->isEmpty()) {
                 break;
             }
 
-            $totalPaid += $transactions->sum(function ($item) {
-                return ($item['status'] ?? null) === 'paid'
-                    ? ($item['amount'] ?? 0)
-                    : 0;
-            });
+            $allTransactions = $allTransactions->merge($transactions);
 
             $totalPages = $response['data']['pagination']['total_pages'] ?? 1;
 
@@ -945,15 +934,86 @@ class ClientController extends Controller
         } while ($page <= $totalPages);
 
         // =========================
+        // FILTRO LOCAL DE PESQUISA
+        // =========================
+        if (!empty($search)) {
+
+            $allTransactions = $allTransactions->filter(function ($item) use ($search) {
+
+                $name = mb_strtolower($item['user']['name'] ?? '');
+
+                $phone = mb_strtolower($item['payer_phone'] ?? '');
+
+                $status = mb_strtolower($item['status'] ?? '');
+
+                return str_contains($name, $search)
+                    || str_contains($phone, $search)
+                    || str_contains($status, $search);
+            });
+        }
+
+        // =========================
+        // TOTAL PAGO
+        // =========================
+        $totalPaid = $allTransactions->sum(function ($item) {
+
+            return ($item['status'] ?? null) === 'paid'
+                ? ($item['amount'] ?? 0)
+                : 0;
+        });
+
+        // =========================
+        // ORDENAÇÃO
+        // =========================
+        $allTransactions = $allTransactions
+            ->sortByDesc('created_at')
+            ->values();
+
+        // =========================
+        // PAGINAÇÃO MANUAL
+        // =========================
+        $totalItems = $allTransactions->count();
+
+        $paginatedItems = $allTransactions
+            ->forPage($currentPage, $perPage)
+            ->values();
+
+        // =========================
+        // MAP RESPONSE
+        // =========================
+        $lista = $paginatedItems->map(function ($item) {
+
+            return [
+                'amount' => $item['amount'] ?? 0,
+                'status' => $item['status'] ?? null,
+                'name' => $item['user']['name'] ?? null,
+                'payer_phone' => $item['payer_phone'] ?? null,
+                'created_at' => $item['created_at'] ?? null,
+            ];
+        });
+
+        // =========================
         // RESPONSE FINAL
         // =========================
         return response()->json([
             'success' => true,
+
+            'filters' => [
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
+                'status' => $status,
+                'search' => $request->search,
+            ],
+
             'total_paid' => $totalPaid,
-            'date_from' => $dateFrom,
-            'date_to' => $dateTo,
-            'status' => $status,
-            'pagination' => $dados['data']['pagination'] ?? null,
+
+            'pagination' => [
+                'current_page' => $currentPage,
+                'per_page' => $perPage,
+                'total_items' => $totalItems,
+                'total_pages' => ceil($totalItems / $perPage),
+            ],
+
             'data' => $lista
         ]);
     }
