@@ -51,6 +51,43 @@ class QuepasaService
         return $response->json('state');
     }
 
+    public function chatIdConversa($dados)
+    {
+        $phone = $dados['phone'];
+
+        // Primeira tentativa
+        $lid = $this->buscarLid($phone, $dados['token']);
+
+        // Se não encontrou, tenta remover o 9
+        if (!$lid) {
+
+            // remove o 9 depois do DDD
+            // +55 44 9 98212815 -> +55 44 98212815
+            $phoneSemNove = preg_replace(
+                '/^(\+55\d{2})9(\d{8})$/',
+                '$1$2',
+                $phone
+            );
+
+            $lid = $this->buscarLid($phoneSemNove, $dados['token']);
+        }
+
+        return $lid;
+    }
+
+    private function buscarLid($phone, $token)
+    {
+        $response = Http::withHeaders([
+            'X-QUEPASA-TOKEN' => $token
+        ])
+            ->withQueryParameters([
+                'phone' => $phone
+            ])
+            ->get("{$this->baseUrl}/useridentifier");
+
+        return $response->json('lid');
+    }
+
     public function webhookService($token)
     {
         $urls = [
@@ -66,7 +103,6 @@ class QuepasaService
                 //"url" => "http://192.168.0.220:5678/webhook-test/8a78b727-2eb5-4cc4-8b8b-fbda6afcd024",
                 "forwardinternal" => false,
             ],);
-
 
 
         return $response->json('status');

@@ -583,15 +583,37 @@ class ClientController extends Controller
             );
 
 
-            $dados = [
-                'message' => $cliente->user->settings->msg_padrao ? $mensagem : $cliente->msg_enviar,
-                'phone_cliente' => $cliente->phone,
-                'token' => $cliente->user->username,
-            ];
+            /*  $dados = [
+                  'message' => $cliente->user->settings->msg_padrao ? $mensagem : $cliente->msg_enviar,
+                  'phone_cliente' => $cliente->phone,
+                  'token' => $cliente->user->username,
+              ];*/
+
+            $phoneDestino = $cliente->phone;
+
 
             try {
                 $status = $this->quepasa->statusService($cliente->user->username);
                 if ($status === "Ready") {
+
+                    // busca o lid
+                    $lid = $this->quepasa->chatIdConversa([
+                        'phone' => $phoneDestino,
+                        'token' => $cliente->user->username,
+                    ]);
+
+            // se encontrou lid usa ele
+                    if ($lid) {
+                        $phoneDestino = $lid;
+                    }
+
+                    $dados = [
+                        'message' => $cliente->user->settings->msg_padrao ? $mensagem : $cliente->msg_enviar,
+                        'phone_cliente' => $phoneDestino,
+                        'token' => $cliente->user->username,
+                    ];
+
+
                     $this->quepasa->sendTextService($dados);
                     // Atualiza o vencimento e cria o pagamento
                     $cliente->update([
@@ -891,7 +913,7 @@ class ClientController extends Controller
 
         $search = mb_strtolower(trim($request->search ?? ''));
 
-        $currentPage = (int) ($request->page ?? 1);
+        $currentPage = (int)($request->page ?? 1);
 
         $perPage = 10;
 
