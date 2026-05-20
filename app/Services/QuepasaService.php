@@ -78,7 +78,7 @@ class QuepasaService
             'Accept' => "application/json"
         ])
             ->post("{$this->baseUrl}/v3/bot/" . $data['token'] . "/sendtext", [
-                "chatid" => $data['phone_cliente'],
+                "chatId" => $data['phone_cliente'],
                 "text" => $data['message'],
             ]);
 

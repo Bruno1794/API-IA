@@ -327,9 +327,12 @@ class ClientController extends Controller
     }
 
     public function storeWhats(Request $request): JsonResponse
+
     {
+
         $dadosAdmin = User::with('settings')
             ->where('phone', Str::before($request->phone, ':'))->first();
+
 
         if (!$dadosAdmin) {
             return response()->json(['error' => 'Usuário administrador não encontrado.'], 404);
@@ -338,11 +341,11 @@ class ClientController extends Controller
         // Normalizando o número do cliente (removendo caracteres não numéricos)
         $phone = preg_replace('/\D/', '', Str::before($request->phone_cliente, '@'));
 
-
         // Garantir que o número tenha o prefixo 55
         if (!str_starts_with($phone, '55')) {
             $phone = '55' . $phone;
         }
+
 
         // Verificar se o número possui 13 dígitos (55 + DDD + 9 + número)
         if (strlen($phone) === 12) {
@@ -350,12 +353,14 @@ class ClientController extends Controller
             $phone = substr($phone, 0, 4) . '9' . substr($phone, 4);
         }
 
+
         // Validação final do número (com o prefixo 55)
         if (!preg_match('/^55\d{2}9\d{4}\d{4}$/', $phone)) {
             return response()->json(['error' => 'Número de telefone do cliente não é válido.'], 422);
         }
 
         if ($request->type === 'text' && $dadosAdmin->settings->cadastro) {
+
 
             $cliente = Client::firstOrCreate(
                 ['phone' => $phone],
@@ -366,7 +371,6 @@ class ClientController extends Controller
                 ]
             );
         }
-
         if ($cliente->status !== "Novo" && !empty($request->renovar)) {
 
             // 2. O Regex já valida o formato (# + número) e extrai o número de forma segura
@@ -375,7 +379,7 @@ class ClientController extends Controller
 
                 $dados = [
                     'message' => "Para renovar seu serviço é bem simples:\n\n1️⃣ Clique no link abaixo\n2️⃣ Escaneie o QR Code ou copie a chave PIX exibida na página\n3️⃣ Após o pagamento, a confirmação acontece automaticamente ✅\n\n🔗 https://servico.ddns.net/{$cliente->phone}/{$numero}",
-                    'phone_cliente' => $cliente->phone,
+                    'phone_cliente' => $request->chatId, //alterei aqui para o chat id do cliente
                     'token' => $cliente->user->username,
                 ];
 
