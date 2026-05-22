@@ -155,9 +155,21 @@ class NoticeController extends Controller
                         ],
                         $notice->message
                     );
+                    $phoneDestino = $cliente->phone;
+
+                    // busca o lid
+                    $lid = $this->quepasa->chatIdConversa([
+                        'phone' => $phoneDestino,
+                        'token' => $cliente->user->username,
+                    ]);
+
+                    // se encontrou lid usa ele
+                    if ($lid) {
+                        $phoneDestino = $lid;
+                    }
 
                     $this->quepasa->sendTextService([
-                        'phone_cliente' => $cliente->phone,
+                        'phone_cliente' => $phoneDestino,
                         'message' => $mensagem,
                         'token' => $user->username,
                     ]);
