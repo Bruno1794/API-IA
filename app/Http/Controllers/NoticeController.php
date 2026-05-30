@@ -165,6 +165,7 @@ class NoticeController extends Controller
 
                     // se encontrou lid usa ele
                     if ($lid) {
+
                         $phoneDestino = $lid;
                     }
 
