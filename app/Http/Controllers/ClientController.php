@@ -61,6 +61,27 @@ class ClientController extends Controller
         ], 200);
     }
 
+
+    public function listaCliente(Request $request): JsonResponse
+    {
+        $apiKey = $request->header('X-API-KEY');
+
+        if ($apiKey !== env('CLIENTES_API_KEY')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Não autorizado'
+            ], 401);
+        }
+
+        $clientes = Client::select('id', 'name', 'referencia', 'phone')->get();
+
+        return response()->json([
+            'success' => true,
+            'clientes' => $clientes
+        ]);
+    }
+
+
     public function listCont(): JsonResponse
     {
         $filtro = strtolower(request()->input('filtro', 'hoje'));

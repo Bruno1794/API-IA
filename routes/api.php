@@ -14,6 +14,7 @@ Route::post('usuarios-lead', [\App\Http\Controllers\UserController::class, 'stor
 ## Clientes
 Route::post('clientes', [\App\Http\Controllers\ClientController::class, 'storeWhats']);
 Route::get('cobranca', [\App\Http\Controllers\ClientController::class, 'cobranca']);
+Route::get('clientesgeral', [\App\Http\Controllers\ClientController::class, 'listaCliente']);
 
 Route::get('fast/status/{transactionId}', [\App\Http\Controllers\ClientController::class, 'status']);
 
