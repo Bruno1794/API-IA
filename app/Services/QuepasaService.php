@@ -51,43 +51,88 @@ class QuepasaService
         return $response->json('state');
     }
 
-    public function chatIdConversa($dados)
+    public function chatIdConversa(array $dados): ?string
     {
-        $phone = $dados['phone'];
+        $token = $dados['token'] ?? null;
+        $phone = $dados['phone'] ?? null;
 
-        // Primeira tentativa
-        $lid = $this->buscarLid($phone, $dados['token']);
+        if (!$token || !$phone) {
+            \Log::warning('Dados inválidos para buscar LID', [
+                'phone' => $phone,
+                'token' => $token,
+            ]);
 
-        // Se não encontrou, tenta remover o 9
-        if (!$lid) {
-
-            // remove o 9 depois do DDD
-            // +55 44 9 98212815 -> +55 44 98212815
-            $phoneSemNove = preg_replace(
-                '/^(\+55\d{2})9(\d{8})$/',
-                '$1$2',
-                $phone
-            );
-
-            $lid = $this->buscarLid($phoneSemNove, $dados['token']);
+            return null;
         }
 
-        return $lid;
+        $phone = preg_replace('/\D/', '', $phone);
+
+        $tentativas = [
+            $phone,
+            '+' . $phone,
+        ];
+
+        // Se for Brasil com nono dígito: 55 + DDD + 9 + 8 dígitos
+        if (preg_match('/^55\d{2}9\d{8}$/', $phone)) {
+            $phoneSemNove = preg_replace('/^(55\d{2})9(\d{8})$/', '$1$2', $phone);
+
+            $tentativas[] = $phoneSemNove;
+            $tentativas[] = '+' . $phoneSemNove;
+        }
+
+        $tentativas = array_unique($tentativas);
+
+        foreach ($tentativas as $phoneTentativa) {
+            $lid = $this->buscarLid($phoneTentativa, $token);
+
+            if ($lid && str_contains($lid, '@lid')) {
+                return $lid;
+            }
+        }
+
+        \Log::warning('LID não encontrado para telefone', [
+            'phone' => $phone,
+            'tentativas' => $tentativas,
+            'token' => $token,
+        ]);
+
+        return null;
     }
 
-    private function buscarLid($phone, $token)
+    private function buscarLid(string $phone, string $token): ?string
     {
-        $response = Http::withHeaders([
-            'X-QUEPASA-TOKEN' => $token
-        ])
-            ->withQueryParameters([
-                'phone' => $phone
+        try {
+            $response = Http::withHeaders([
+                'X-QUEPASA-TOKEN' => $token,
             ])
-            ->get("{$this->baseUrl}/useridentifier");
+                ->timeout(10)
+                ->withQueryParameters([
+                    'phone' => $phone,
+                ])
+                ->get("{$this->baseUrl}/useridentifier");
 
-        return $response->json('lid');
+            if (!$response->successful()) {
+                \Log::warning('Erro ao buscar LID no Quepasa', [
+                    'phone' => $phone,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+
+                return null;
+            }
+
+            $lid = $response->json('lid');
+
+            return $lid && str_contains($lid, '@lid') ? $lid : null;
+        } catch (\Throwable $e) {
+            \Log::error('Exceção ao buscar LID no Quepasa', [
+                'phone' => $phone,
+                'erro' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
     }
-
     public function webhookService($token)
     {
         $urls = [

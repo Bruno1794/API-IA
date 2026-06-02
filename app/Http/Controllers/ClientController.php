@@ -531,140 +531,165 @@ class ClientController extends Controller
     public function cobranca(): JsonResponse
     {
         $horaAtual = Carbon::now()->format('H:i');
+        $enviadas = 0;
+        $ignoradas = 0;
+        $erros = 0;
 
-        // Filtrar apenas clientes cujo horário de cobrança já passou
         $clientes = Client::where('status', 'Ativo')
             ->where('cobrar', false)
-            ->where('is_processing', false)  // Apenas clientes que não estão em processamento
+            ->where('is_processing', false)
             ->with('user.settings')
             ->get()
             ->filter(function ($cliente) use ($horaAtual) {
-                // Verifica se o horário de cobrança já passou
+                if (!$cliente->user || !$cliente->user->settings) {
+                    return false;
+                }
+
                 if ($cliente->user->settings->time_cobranca >= $horaAtual) {
                     return false;
                 }
 
-                // Verifica se a data atual + $cliente->avisar dias é igual ao vencimento
                 return Carbon::parse($cliente->vencimento)
                     ->isSameDay(Carbon::today()->addDays($cliente->avisar ?? 0));
             });
 
-
-        // Se não houver clientes que atendem aos critérios, retornar sucesso
         if ($clientes->isEmpty()) {
-            return response()->json(['success' => false, 'message' => 'Nenhuma cobrança a ser realizada no momento.'],
-                200);
+            return response()->json([
+                'success' => false,
+                'message' => 'Nenhuma cobrança a ser realizada no momento.',
+            ], 200);
         }
 
         foreach ($clientes as $cliente) {
-            // Tenta marcar o cliente como em processamento de forma segura (retorna 1 se atualizado)
             $atualizado = Client::where('id', $cliente->id)
                 ->where('is_processing', false)
                 ->update(['is_processing' => true]);
 
-            // Se não conseguiu atualizar, significa que já está sendo processado
             if ($atualizado === 0) {
                 continue;
             }
 
-            $vencimentoAtual = Carbon::parse($cliente->vencimento);
-            $novoVencimento = $vencimentoAtual;
-
-            // Atualiza o vencimento conforme o tipo de cobrança
-            switch ($cliente->type_cobranca) {
-                case 'MENSAL':
-                    $novoVencimento = $vencimentoAtual->addMonth();
-                    break;
-                case 'BIMESTRAL':
-                    $novoVencimento = $vencimentoAtual->addMonths(2);
-                    break;
-                case 'TRIMESTRAL':
-                    $novoVencimento = $vencimentoAtual->addMonths(3);
-                    break;
-                case 'SEMESTRAL':
-                    $novoVencimento = $vencimentoAtual->addMonths(6);
-                    break;
-                case 'ANUAL':
-                    $novoVencimento = $vencimentoAtual->addYear();
-                    break;
-            }
-
-            $substituicoes = [
-                '[nome]' => $cliente->name,
-                '[vencimento]' => Carbon::parse($cliente->vencimento)->format('d/m/Y'),
-                '[telefone]' => $cliente->phone,
-                '[tipo_cobranca]' => $cliente->type_cobranca,
-                '[valor]' => $cliente->value_mensalidade,
-            ];
-
-            $mensagem = str_replace(
-                array_keys($substituicoes),
-                array_values($substituicoes),
-                $cliente->user->settings->msg_padrao
-            );
-
-
-            /*  $dados = [
-                  'message' => $cliente->user->settings->msg_padrao ? $mensagem : $cliente->msg_enviar,
-                  'phone_cliente' => $cliente->phone,
-                  'token' => $cliente->user->username,
-              ];*/
-
-            $phoneDestino = $cliente->phone;
-
-
             try {
                 $status = $this->quepasa->statusService($cliente->user->username);
-                if ($status === "Ready") {
 
-                    // busca o lid
-                    $lid = $this->quepasa->chatIdConversa([
-                        'phone' => $phoneDestino,
+                if ($status !== 'Ready') {
+                    \Log::warning('Quepasa não está Ready', [
+                        'cliente_id' => $cliente->id,
                         'token' => $cliente->user->username,
+                        'status' => $status,
                     ]);
 
-            // se encontrou lid usa ele
-                    if ($lid) {
-                        $phoneDestino = $lid;
-                    }
-
-                    $dados = [
-                        'message' => $cliente->user->settings->msg_padrao ? $mensagem : $cliente->msg_enviar,
-                        'phone_cliente' => $phoneDestino,
-                        'token' => $cliente->user->username,
-                    ];
-
-
-                    $this->quepasa->sendTextService($dados);
-                    // Atualiza o vencimento e cria o pagamento
-                    $cliente->update([
-                        'vencimento' => $novoVencimento,
-                    ]);
-
-                    $cliente->payments()->create([
-                        'user_id' => $cliente->user_id,
-                        'data_criado' => Carbon::today()->toDateString(),
-                        'valor_debito' => $cliente->value_mensalidade,
-                        'tipo_pagamento' => $cliente->preferencia,
-                    ]);
-
-                    // Pausa de 5 segundos entre cada envio
-                    sleep(5);
+                    $ignoradas++;
+                    continue;
                 }
-            } catch (\Exception $e) {
-                return response()->json(['error' => 'Erro ao enviar mensagem'], 500);
-            } finally {
-                // Garante que o processamento será finalizado, mesmo em caso de erro
-                //$cliente->update(['is_processing' => false]);
 
-                $cliente->is_processing = false;
-                $cliente->save();
+                $phoneOriginal = preg_replace('/\D/', '', $cliente->phone);
+
+                $lid = $this->quepasa->chatIdConversa([
+                    'phone' => $phoneOriginal,
+                    'token' => $cliente->user->username,
+                ]);
+
+                if (!$lid || !str_contains($lid, '@lid')) {
+                    \Log::warning('Cliente sem LID, cobrança não enviada', [
+                        'cliente_id' => $cliente->id,
+                        'phone' => $phoneOriginal,
+                        'retorno_lid' => $lid,
+                        'token' => $cliente->user->username,
+                    ]);
+
+                    $ignoradas++;
+                    continue;
+                }
+
+                $vencimentoAtual = Carbon::parse($cliente->vencimento);
+                $novoVencimento = match ($cliente->type_cobranca) {
+                    'BIMESTRAL' => $vencimentoAtual->copy()->addMonths(2),
+                    'TRIMESTRAL' => $vencimentoAtual->copy()->addMonths(3),
+                    'SEMESTRAL' => $vencimentoAtual->copy()->addMonths(6),
+                    'ANUAL' => $vencimentoAtual->copy()->addYear(),
+                    default => $vencimentoAtual->copy()->addMonth(),
+                };
+
+                $mensagemPadrao = $cliente->user->settings->msg_padrao;
+
+                $substituicoes = [
+                    '[nome]' => $cliente->name,
+                    '[vencimento]' => Carbon::parse($cliente->vencimento)->format('d/m/Y'),
+                    '[telefone]' => $cliente->phone,
+                    '[tipo_cobranca]' => $cliente->type_cobranca,
+                    '[valor]' => $cliente->value_mensalidade,
+                ];
+
+                $mensagem = $mensagemPadrao
+                    ? str_replace(array_keys($substituicoes), array_values($substituicoes), $mensagemPadrao)
+                    : $cliente->msg_enviar;
+
+                if (!$mensagem) {
+                    \Log::warning('Cliente sem mensagem de cobrança', [
+                        'cliente_id' => $cliente->id,
+                    ]);
+
+                    $ignoradas++;
+                    continue;
+                }
+
+                $dados = [
+                    'message' => $mensagem,
+                    'phone_cliente' => $lid,
+                    'token' => $cliente->user->username,
+                ];
+
+                $retorno = $this->quepasa->sendTextService($dados);
+
+                if (is_array($retorno) && isset($retorno['success']) && $retorno['success'] === false) {
+                    \Log::error('Erro no envio da cobrança pelo Quepasa', [
+                        'cliente_id' => $cliente->id,
+                        'retorno' => $retorno,
+                    ]);
+
+                    $erros++;
+                    continue;
+                }
+
+                $cliente->update([
+                    'vencimento' => $novoVencimento,
+                ]);
+
+                $cliente->payments()->create([
+                    'user_id' => $cliente->user_id,
+                    'data_criado' => Carbon::today()->toDateString(),
+                    'valor_debito' => $cliente->value_mensalidade,
+                    'tipo_pagamento' => $cliente->preferencia,
+                ]);
+
+                $enviadas++;
+
+                sleep(5);
+            } catch (\Throwable $e) {
+                \Log::error('Erro ao processar cobrança', [
+                    'cliente_id' => $cliente->id,
+                    'phone' => $cliente->phone,
+                    'erro' => $e->getMessage(),
+                ]);
+
+                $erros++;
+                continue;
+            } finally {
+                Client::where('id', $cliente->id)->update([
+                    'is_processing' => false,
+                ]);
             }
         }
 
-        return response()->json(['success' => true], 200);
+        return response()->json([
+            'success' => true,
+            'total' => $clientes->count(),
+            'enviadas' => $enviadas,
+            'ignoradas' => $ignoradas,
+            'erros' => $erros,
+        ], 200);
     }
-
 
     public function destroy(Client $client): JsonResponse
     {
