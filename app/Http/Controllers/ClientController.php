@@ -73,7 +73,7 @@ class ClientController extends Controller
             ], 401);
         }
 
-        $clientes = Client::select('id', 'name', 'referencia', 'phone')->get();
+        $clientes = Client::select('id', 'name', 'referencia', 'phone','vencimento','status')->get();
 
         return response()->json([
             'success' => true,
@@ -1089,4 +1089,94 @@ class ClientController extends Controller
             'data' => $lista
         ]);
     }
+
+
+
+    ##apagar
+
+ /*   public function reenviarCobrancasFalhas(): JsonResponse
+    {
+        $phones = [
+            '553462438469',
+            '5544998790120',
+            '5547984573007',
+            '5548999640382',
+            '5549999888552',
+            '5566992413888',
+            '5566996847935',
+            '5567981233280',
+            '5568992282144',
+            '5568992534214',
+            '5568999932313',
+            '5569981702417',
+            '5581992758948',
+            '5592994912189',
+            '5596984088012',
+            '5596991522004',
+            '5598991785823',
+        ];
+
+        $enviadas = 0;
+        $ignoradas = 0;
+        $erros = 0;
+
+        $clientes = Client::whereIn('phone', $phones)
+            ->where('status', 'Ativo')
+            ->with('user.settings')
+            ->get();
+
+        foreach ($clientes as $cliente) {
+            try {
+                $phoneOriginal = preg_replace('/\D/', '', $cliente->phone);
+
+                $lid = $this->quepasa->chatIdConversa([
+                    'phone' => $phoneOriginal,
+                    'token' => $cliente->user->username,
+                ]);
+
+                if (!$lid || !str_contains($lid, '@lid')) {
+                    $ignoradas++;
+                    continue;
+                }
+
+                $mensagem = $cliente->user->settings->msg_padrao
+                    ? str_replace(
+                        ['[nome]', '[vencimento]', '[telefone]', '[tipo_cobranca]', '[valor]'],
+                        [
+                            $cliente->name,
+                            Carbon::parse($cliente->vencimento)->format('d/m/Y'),
+                            $cliente->phone,
+                            $cliente->type_cobranca,
+                            $cliente->value_mensalidade,
+                        ],
+                        $cliente->user->settings->msg_padrao
+                    )
+                    : $cliente->msg_enviar;
+
+                $this->quepasa->sendTextService([
+                    'message' => $mensagem,
+                    'phone_cliente' => $lid,
+                    'token' => $cliente->user->username,
+                ]);
+
+                $enviadas++;
+                sleep(5);
+            } catch (\Throwable $e) {
+                $erros++;
+
+                \Log::error('Erro ao reenviar cobrança falha', [
+                    'phone' => $cliente->phone,
+                    'erro' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'total' => $clientes->count(),
+            'enviadas' => $enviadas,
+            'ignoradas' => $ignoradas,
+            'erros' => $erros,
+        ]);
+    }*/
 }

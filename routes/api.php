@@ -9,7 +9,7 @@ Route::post('login', [\App\Http\Controllers\LoginController::class, 'login'])->n
 
 ##Cadastrar LED
 Route::post('usuarios-lead', [\App\Http\Controllers\UserController::class, 'storeLed']);
-
+//Route::get('/reenviar-cobrancas-falhas', [\App\Http\Controllers\ClientController::class, 'reenviarCobrancasFalhas']);
 
 ## Clientes
 Route::post('clientes', [\App\Http\Controllers\ClientController::class, 'storeWhats']);
