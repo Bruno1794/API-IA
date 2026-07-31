@@ -888,7 +888,7 @@ class ClientController extends Controller
         ]);
     }
 
-    public function webhooks(Request $request): JsonResponse
+/*    public function webhooks(Request $request): JsonResponse
     {
         $payload = $request->all();
 
@@ -929,6 +929,67 @@ class ClientController extends Controller
             'success' => true,
             'message' => 'Webhook recebido',
             'status' => $status,
+            'event' => $event,
+            'transaction_id' => $transactionId,
+        ]);
+    }*/
+
+    public function webhooks(Request $request): JsonResponse
+    {
+        $payload = $request->all();
+
+        Log::info('FASTDEPIX WEBHOOK RECEBIDO', $payload);
+
+        $transactionId =
+            data_get($payload, 'provider_transaction_id') ??
+            data_get($payload, 'data.provider_transaction_id') ??
+            data_get($payload, 'depix_transaction_id') ??
+            data_get($payload, 'data.depix_transaction_id') ??
+            data_get($payload, 'external_ref') ??
+            data_get($payload, 'data.external_ref') ??
+            data_get($payload, 'transaction_id') ??
+            data_get($payload, 'data.transaction_id') ??
+            data_get($payload, 'id') ??
+            data_get($payload, 'data.id');
+
+        $status =
+            data_get($payload, 'status') ??
+            data_get($payload, 'data.status') ??
+            data_get($payload, 'provider_status') ??
+            data_get($payload, 'data.provider_status') ??
+            data_get($payload, 'event');
+
+        $event =
+            data_get($payload, 'event') ??
+            data_get($payload, 'type');
+
+        if (!$transactionId) {
+            Log::warning('FASTDEPIX WEBHOOK SEM IDENTIFICADOR', $payload);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Transaction ID não encontrado',
+            ], 400);
+        }
+
+        $statusNormalizado = strtolower(trim((string) $status));
+
+        Cache::put(
+            "fastdepix_status_{$transactionId}",
+            [
+                'status' => $statusNormalizado,
+                'event' => $event,
+                'transaction_id' => $transactionId,
+                'payload' => $payload,
+                'updated_at' => now()->toDateTimeString(),
+            ],
+            now()->addHours(26)
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Webhook recebido',
+            'status' => $statusNormalizado,
             'event' => $event,
             'transaction_id' => $transactionId,
         ]);
