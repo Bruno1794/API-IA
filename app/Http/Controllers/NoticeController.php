@@ -6,6 +6,7 @@ use App\Jobs\EnviarNotificacaoJob;
 use App\Models\Client;
 use App\Models\Notice;
 use App\Models\Settings;
+use App\Services\KirogoService;
 use app\Services\QuepasaService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -16,10 +17,12 @@ class NoticeController extends Controller
 {
     //
     protected $quepasa;
+    protected $kirago;
 
-    public function __construct(QuepasaService $quepasa)
+    public function __construct(QuepasaService $quepasa, KirogoService $kirogo)
     {
         $this->quepasa = $quepasa;
+        $this->kirago = $kirogo;
     }
 
     public function index(Request $request): JsonResponse
@@ -132,61 +135,342 @@ class NoticeController extends Controller
             ])
             ->get();
 
-        $notificou = false;
+        $enviadas = 0;
+        $ignoradas = 0;
+        $erros = 0;
 
         foreach ($clientes as $cliente) {
-            $diasDesativado = Carbon::parse($cliente->date_desativado)->diffInDays(now());
+
+            // ==========================================
+            // 1. VALIDA USUÁRIO
+            // ==========================================
+
             $user = $cliente->user;
 
-            if (!$user->settings || !$user->settings->notificar) {
+            if (!$user) {
+
+                \Log::warning(
+                    'Cliente inativo sem usuário vinculado',
+                    [
+                        'cliente_id' => $cliente->id,
+                    ]
+                );
+
+                $ignoradas++;
+
                 continue;
             }
 
+
+            // ==========================================
+            // 2. VALIDA CONFIGURAÇÕES
+            // ==========================================
+
+            if (
+                !$user->settings
+                || !$user->settings->notificar
+            ) {
+                $ignoradas++;
+                continue;
+            }
+
+
+            // ==========================================
+            // 3. VALIDA INSTÂNCIA KIRAGO
+            // ==========================================
+
+            if (!$user->username) {
+
+                \Log::warning(
+                    'Usuário sem instância Kirago configurada',
+                    [
+                        'cliente_id' => $cliente->id,
+                        'user_id' => $user->id,
+                    ]
+                );
+
+                $ignoradas++;
+
+                continue;
+            }
+
+
+            // ==========================================
+            // 4. VALIDA DATA DE DESATIVAÇÃO
+            // ==========================================
+
+            if (!$cliente->date_desativado) {
+
+                \Log::warning(
+                    'Cliente inativo sem data de desativação',
+                    [
+                        'cliente_id' => $cliente->id,
+                    ]
+                );
+
+                $ignoradas++;
+
+                continue;
+            }
+
+
+            $diasDesativado = Carbon::parse(
+                $cliente->date_desativado
+            )->diffInDays(now());
+
+
+            // ==========================================
+            // 5. PERCORRE AS NOTIFICAÇÕES
+            // ==========================================
+
             foreach ($user->notices as $notice) {
-                if ((int)$diasDesativado === (int)$notice->day) {
-                    $mensagem = str_replace(
-                        ['[nome]', '[vencimento]', '[telefone]', '[tipo_cobranca]', '[valor]'],
+
+                if (
+                    (int) $diasDesativado
+                    !==
+                    (int) $notice->day
+                ) {
+                    continue;
+                }
+
+
+                // ==========================================
+                // 6. MONTA MENSAGEM
+                // ==========================================
+
+                $valorFormatado = number_format(
+                    (float) $cliente->value_mensalidade,
+                    2,
+                    ',',
+                    '.'
+                );
+
+
+                $vencimentoFormatado = $cliente->vencimento
+                    ? Carbon::parse(
+                        $cliente->vencimento
+                    )->format('d/m/Y')
+                    : '';
+
+
+                $mensagem = str_replace(
+                    [
+                        '[nome]',
+                        '[vencimento]',
+                        '[telefone]',
+                        '[tipo_cobranca]',
+                        '[valor]',
+                    ],
+                    [
+                        $cliente->name,
+                        $vencimentoFormatado,
+                        $cliente->phone,
+                        $cliente->type_cobranca,
+                        $valorFormatado,
+                    ],
+                    $notice->message
+                );
+
+
+                // ==========================================
+                // 7. VALIDA MENSAGEM
+                // ==========================================
+
+                if (!$mensagem) {
+
+                    \Log::warning(
+                        'Notificação sem mensagem configurada',
                         [
-                            $cliente->name,
-                            Carbon::parse($cliente->vencimento)->format('d/m/Y'),
-                            $cliente->phone,
-                            $cliente->type_cobranca,
-                            $cliente->value_mensalidade,
-                        ],
-                        $notice->message
+                            'cliente_id' => $cliente->id,
+                            'notice_id' => $notice->id,
+                        ]
                     );
-                    $phoneDestino = $cliente->phone;
 
-                    // busca o lid
-                    $lid = $this->quepasa->chatIdConversa([
-                        'phone' => $phoneDestino,
-                        'token' => $cliente->user->username,
-                    ]);
+                    $ignoradas++;
 
-                    // se encontrou lid usa ele
-                    if ($lid) {
+                    break;
+                }
 
-                        $phoneDestino = $lid;
+
+                // ==========================================
+                // 8. NORMALIZA TELEFONE
+                // ==========================================
+
+                $phoneDestino = preg_replace(
+                    '/\D/',
+                    '',
+                    (string) $cliente->phone
+                );
+
+
+                if (!str_starts_with(
+                    $phoneDestino,
+                    '55'
+                )) {
+                    $phoneDestino =
+                        '55' . $phoneDestino;
+                }
+
+
+                // ==========================================
+                // 9. DADOS PARA O KIRAGO
+                // ==========================================
+
+                $dados = [
+                    'phone_cliente' =>
+                        $phoneDestino,
+
+                    'message' =>
+                        $mensagem,
+
+                    'token' =>
+                        $user->username,
+                ];
+
+
+                // ==========================================
+                // 10. ENVIA PELO KIRAGO
+                // ==========================================
+
+                try {
+
+                    $retorno =
+                        $this->kirago
+                            ->enviarMensagem(
+                                $dados
+                            );
+
+
+                    // ==========================================
+                    // 11. VERIFICA RETORNO
+                    // ==========================================
+
+                    if (
+                        !isset($retorno['success'])
+                        || $retorno['success'] !== true
+                    ) {
+
+                        \Log::error(
+                            'Erro no envio da notificação pelo Kirago',
+                            [
+                                'cliente_id' =>
+                                    $cliente->id,
+
+                                'phone' =>
+                                    $phoneDestino,
+
+                                'instancia' =>
+                                    $user->username,
+
+                                'notice_id' =>
+                                    $notice->id,
+
+                                'retorno' =>
+                                    $retorno,
+                            ]
+                        );
+
+                        $erros++;
+
+                        break;
                     }
 
-                    $this->quepasa->sendTextService([
-                        'phone_cliente' => $phoneDestino,
-                        'message' => $mensagem,
-                        'token' => $user->username,
-                    ]);
 
-                    sleep(2); // Aguarda 2 segundos antes do próximo envio
-                    $notificou = true;
-                    break; // Envia apenas uma notificação por cliente
+                    // ==========================================
+                    // 12. SUCESSO
+                    // ==========================================
+
+                    $enviadas++;
+
+
+                    \Log::info(
+                        'Notificação enviada pelo Kirago',
+                        [
+                            'cliente_id' =>
+                                $cliente->id,
+
+                            'phone' =>
+                                $phoneDestino,
+
+                            'instancia' =>
+                                $user->username,
+
+                            'notice_id' =>
+                                $notice->id,
+
+                            'dias_desativado' =>
+                                $diasDesativado,
+                        ]
+                    );
+
+
+                    /*
+                     * Aguarda antes do próximo envio.
+                     */
+                    sleep(2);
+
+                } catch (\Throwable $e) {
+
+                    \Log::error(
+                        'Erro ao processar notificação',
+                        [
+                            'cliente_id' =>
+                                $cliente->id,
+
+                            'phone' =>
+                                $phoneDestino,
+
+                            'instancia' =>
+                                $user->username,
+
+                            'erro' =>
+                                $e->getMessage(),
+
+                            'arquivo' =>
+                                $e->getFile(),
+
+                            'linha' =>
+                                $e->getLine(),
+                        ]
+                    );
+
+                    $erros++;
                 }
+
+
+                /*
+                 * Uma única notificação por cliente
+                 * nessa execução.
+                 */
+                break;
             }
         }
 
+
+        // ==========================================
+        // 13. RETORNO
+        // ==========================================
+
         return response()->json([
             'success' => true,
-            'message' => $notificou ? 'Notificações enviadas' : 'Sem notificações'
-        ]);
-    }
 
+            'message' =>
+                $enviadas > 0
+                    ? 'Notificações processadas.'
+                    : 'Sem notificações para enviar.',
+
+            'total_clientes' =>
+                $clientes->count(),
+
+            'enviadas' =>
+                $enviadas,
+
+            'ignoradas' =>
+                $ignoradas,
+
+            'erros' =>
+                $erros,
+        ], 200);
+    }
 
 }
