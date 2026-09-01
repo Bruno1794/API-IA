@@ -7,6 +7,7 @@ use App\Models\Client;
 use App\Models\Payment;
 use App\Models\User;
 use App\Services\fastDepixService;
+use App\Services\KirogoService;
 use App\Services\QuepasaService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -20,12 +21,14 @@ class ClientController extends Controller
 {
     //
     protected $quepasa;
+    protected $kirago;
     protected $fastDepix;
 
-    public function __construct(QuepasaService $quepasa, FastDepixService $fastDepix)
+    public function __construct(QuepasaService $quepasa, FastDepixService $fastDepix, KirogoService $kirogo)
     {
         $this->quepasa = $quepasa;
         $this->fastDepix = $fastDepix;
+        $this->kirago = $kirogo;
     }
 
 //   ->when($search, function ($query, $search) {
@@ -346,341 +349,981 @@ class ClientController extends Controller
             'data' => $client,
         ]);
     }
-
-    public function storeWhats(Request $request): JsonResponse
-
+    public function fastDepix(Request $request): JsonResponse
     {
+        $request->validate([
+            'phone' => ['required'],
+            'value_cobranca' => ['required', 'numeric', 'min:0.01'],
+        ]);
 
-        $dadosAdmin = User::with('settings')
-            ->where('phone', Str::before($request->phone, ':'))->first();
+        /*
+         * Normaliza telefone.
+         */
+        $phone = preg_replace(
+            '/\D/',
+            '',
+            (string) $request->phone
+        );
 
-
-        if (!$dadosAdmin) {
-            return response()->json(['error' => 'Usuário administrador não encontrado.'], 404);
-        }
-
-        // Normalizando o número do cliente (removendo caracteres não numéricos)
-        $phone = preg_replace('/\D/', '', Str::before($request->phone_cliente, '@'));
-
-        // Garantir que o número tenha o prefixo 55
         if (!str_starts_with($phone, '55')) {
             $phone = '55' . $phone;
         }
 
-
-        // Verificar se o número possui 13 dígitos (55 + DDD + 9 + número)
+        /*
+         * Se vier com 12 dígitos:
+         * 55 + DDD + 8 dígitos
+         * adiciona o 9.
+         */
         if (strlen($phone) === 12) {
-            // Adiciona o dígito 9 após o DDD
-            $phone = substr($phone, 0, 4) . '9' . substr($phone, 4);
+            $phone =
+                substr($phone, 0, 4)
+                . '9'
+                . substr($phone, 4);
         }
 
+        $valor = (float) $request->value_cobranca;
 
-        // Validação final do número (com o prefixo 55)
-        if (!preg_match('/^55\d{2}9\d{4}\d{4}$/', $phone)) {
-            return response()->json(['error' => 'Número de telefone do cliente não é válido.'], 422);
+        $cliente = Client::where(
+            'phone',
+            $phone
+        )->first();
+
+
+        if (!$cliente) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cliente não encontrado',
+            ], 404);
         }
 
-        if ($request->type === 'text' && $dadosAdmin->settings->cadastro) {
+        try {
 
-
-            $cliente = Client::firstOrCreate(
-                ['phone' => $phone],
-                [
-                    'user_id' => $dadosAdmin->id,
-                    'name' => $request->name,
-                    'status' => "Novo",
-                ]
+            $pix = $this->gerarPixCliente(
+                $cliente,
+                $valor
             );
+
+            return response()->json([
+                'success' => true,
+                'reused' => $pix['reused'],
+                'valor' => $pix['valor'],
+                'copy_code' => $pix['copy_code'],
+                'dadosDepix' => $pix['dadosDepix'],
+            ], 200);
+
+        } catch (\Throwable $e) {
+
+            report($e);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Erro ao gerar PIX.',
+            ], 500);
         }
-        if ($cliente->status !== "Novo" && !empty($request->renovar)) {
+    }
 
-            // 2. O Regex já valida o formato (# + número) e extrai o número de forma segura
-            if (preg_match('/^#(\d+)$/', $request->renovar, $matches)) {
-                $numero = $matches[1];
+    /**
+     * Gera ou reaproveita um PIX FastDepix para o cliente.
+     */
+    private function gerarPixCliente(Client $cliente, float $valor): array
+    {
+        $phone = preg_replace('/\D/', '', $cliente->phone);
 
-                $dados = [
-                    'message' => "Para renovar seu serviço é bem simples:\n\n1️⃣ Clique no link abaixo\n2️⃣ Escaneie o QR Code ou copie a chave PIX exibida na página\n3️⃣ Após o pagamento, a confirmação acontece automaticamente ✅\n\n🔗 https://servico.ddns.net/{$cliente->phone}/{$numero}",
-                    'phone_cliente' => $request->chatId, //alterei aqui para o chat id do cliente
-                    'token' => $cliente->user->username,
+        $cacheKey = "fastdepix_pix_{$phone}_{$valor}";
+
+        $pixExistente = Cache::get($cacheKey);
+
+        // ==========================================
+        // 1. TENTA REAPROVEITAR PIX EXISTENTE
+        // ==========================================
+        if ($pixExistente) {
+
+            $dadosDepix = data_get(
+                $pixExistente,
+                'dadosDepix'
+            );
+
+            $depixId =
+                data_get(
+                    $dadosDepix,
+                    'data.depix_transaction_id'
+                )
+                ?? data_get(
+                $dadosDepix,
+                'data.provider_transaction_id'
+            )
+                ?? data_get(
+                    $dadosDepix,
+                    'data.id'
+                );
+
+            $statusCache = null;
+
+            if ($depixId) {
+                $statusCache = Cache::get(
+                    "fastdepix_status_{$depixId}"
+                );
+            }
+
+            $status =
+                data_get($statusCache, 'status')
+                ?? data_get($dadosDepix, 'data.status')
+                ?? data_get($dadosDepix, 'data.provider_status');
+
+            if (
+                !in_array(
+                    $status,
+                    [
+                        'paid',
+                        'expired',
+                        'transaction.paid',
+                        'transaction.expired',
+                    ],
+                    true
+                )
+            ) {
+
+                /*
+                 * ESTE É O CAMPO REAL DA FASTFLOW
+                 */
+                $copyCode =
+                    data_get($dadosDepix, 'data.qr_code_text')
+                    ?? data_get($dadosDepix, 'data.pix_code')
+                    ?? data_get($dadosDepix, 'data.pixCode')
+                    ?? data_get($dadosDepix, 'data.copy_code')
+                    ?? data_get($dadosDepix, 'data.copyCode')
+                    ?? data_get($dadosDepix, 'qr_code_text');
+
+                return [
+                    'success' => true,
+                    'reused' => true,
+                    'valor' => $valor,
+                    'copy_code' => $copyCode,
+                    'dadosDepix' => $dadosDepix,
                 ];
-
-                $this->quepasa->sendTextService($dados);
-
-            } else {
-                // Retorno amigável para o usuário ou log em vez de travar o app com dd() em produção
-                return response()->json(['error' => "Formato inválido: {$request->renovar}"], 422);
             }
         }
 
+        // ==========================================
+        // 2. GERA UM PIX NOVO
+        // ==========================================
 
+        $dados = [
+            'amount' => $valor,
+
+            'user' => [
+                'name' =>
+                    $cliente->referencia
+                        ?: $cliente->name,
+
+                'user_type' =>
+                    'individual',
+            ],
+
+            'payer_phone' => $phone,
+
+            'notification_url' =>
+                'https://api.codeacode.com.br/api/webhooks/fastdepix',
+        ];
+
+        $dadosDepix =
+            $this->fastDepix->gerarTransction(
+                $dados
+            );
+
+        // ==========================================
+        // 3. PEGA O PIX COPIA E COLA
+        // ==========================================
+
+        $copyCode =
+            data_get(
+                $dadosDepix,
+                'data.qr_code_text'
+            )
+            ?? data_get(
+            $dadosDepix,
+            'data.pix_code'
+        )
+            ?? data_get(
+            $dadosDepix,
+            'data.pixCode'
+        )
+            ?? data_get(
+            $dadosDepix,
+            'data.copy_code'
+        )
+            ?? data_get(
+            $dadosDepix,
+            'data.copyCode'
+        )
+            ?? data_get(
+                $dadosDepix,
+                'qr_code_text'
+            );
+
+        // ==========================================
+        // 4. CACHE 20 MINUTOS
+        // ==========================================
+
+        Cache::put(
+            $cacheKey,
+            [
+                'dadosDepix' =>
+                    $dadosDepix,
+            ],
+            now()->addMinutes(20)
+        );
+
+        return [
+            'success' => true,
+            'reused' => false,
+            'valor' => $valor,
+            'copy_code' => $copyCode,
+            'dadosDepix' => $dadosDepix,
+        ];
+    }
+    public function storeWhats(Request $request): JsonResponse
+    {
+
+        /*
+         * Localiza o administrador pela instância/telefone.
+         */
+        $dadosAdmin = User::with('settings')
+            ->where(
+                'phone',
+                Str::before(
+                    (string) $request->phone,
+                    ':'
+                )
+            )
+            ->first();
+
+        if (!$dadosAdmin) {
+            return response()->json([
+                'error' =>
+                    'Usuário administrador não encontrado.',
+            ], 404);
+        }
+
+        /*
+         * Normaliza telefone do cliente.
+         */
+        $phone = preg_replace(
+            '/\D/',
+            '',
+            Str::before(
+                (string) $request->phone_cliente,
+                '@'
+            )
+        );
+
+        /*
+         * Garante DDI 55.
+         */
+        if (!str_starts_with($phone, '55')) {
+            $phone = '55' . $phone;
+        }
+
+        /*
+         * Caso venha:
+         *
+         * 55 + DDD + 8 dígitos
+         *
+         * adiciona o nono dígito.
+         */
+        if (strlen($phone) === 12) {
+            $phone =
+                substr($phone, 0, 4)
+                . '9'
+                . substr($phone, 4);
+        }
+
+        /*
+         * Validação final:
+         *
+         * 55
+         * + DDD
+         * + 9
+         * + 8 dígitos
+         */
+        if (!preg_match(
+            '/^55\d{2}9\d{8}$/',
+            $phone
+        )) {
+
+            return response()->json([
+                'error' =>
+                    'Número de telefone do cliente não é válido.',
+                'phone' => $phone,
+            ], 422);
+        }
+
+        /*
+         * Procura cliente existente.
+         */
+        $cliente = Client::where(
+            'phone',
+            $phone
+        )->first();
+
+        /*
+         * Cria cliente automaticamente somente
+         * se for mensagem de texto e o cadastro
+         * automático estiver habilitado.
+         */
+        if (
+            !$cliente
+            && $request->type === 'Message'
+            && $dadosAdmin->settings?->cadastro
+        ) {
+
+            $cliente = Client::create([
+                'phone' => $phone,
+                'user_id' => $dadosAdmin->id,
+                'name' => $request->name,
+                'status' => 'Novo',
+            ]);
+        }
+
+        /*
+         * Se ainda não existe cliente,
+         * encerra aqui.
+         */
+        if (!$cliente) {
+
+            return response()->json([
+                'success' => false,
+                'message' =>
+                    'Cliente não encontrado e cadastro automático desabilitado.',
+            ], 404);
+        }
+
+        /*
+         * Carrega usuário caso ainda não esteja carregado.
+         */
+        $cliente->loadMissing('user');
+
+        /*
+         * Automação de renovação.
+         *
+         * Exemplos aceitos:
+         *
+         * #30
+         * #50
+         * #79.90
+         * #79,90
+         */
+        if (
+            $cliente->status !== 'Novo'
+            && !empty($request->renovar)
+        ) {
+
+            if (
+                !preg_match(
+                    '/^#(\d+(?:[.,]\d{1,2})?)$/',
+                    trim($request->renovar),
+                    $matches
+                )
+            ) {
+
+                return response()->json([
+                    'success' => false,
+                    'error' =>
+                        "Formato inválido: {$request->renovar}",
+                ], 422);
+            }
+
+            /*
+             * Remove o # e converte vírgula para ponto.
+             */
+            $valor = (float) str_replace(
+                ',',
+                '.',
+                $matches[1]
+            );
+
+            if ($valor <= 0) {
+
+                return response()->json([
+                    'success' => false,
+                    'error' =>
+                        'Valor da cobrança inválido.',
+                ], 422);
+            }
+
+            try {
+
+                /*
+                 * Gera ou reaproveita PIX.
+                 */
+                $pix = $this->gerarPixCliente(
+                    $cliente,
+                    $valor
+                );
+
+                $copyCode = $pix['copy_code'];
+
+                /*
+                 * Segurança:
+                 * não tenta enviar sem copia e cola.
+                 */
+                if (!$copyCode) {
+
+                    return response()->json([
+                        'success' => false,
+                        'message' =>
+                            'PIX foi gerado, mas o código copia e cola não foi encontrado.',
+                        'dadosDepix' =>
+                            $pix['dadosDepix'] ?? null,
+                    ], 500);
+                }
+
+                $valorFormatado =
+                    number_format(
+                        $valor,
+                        2,
+                        ',',
+                        '.'
+                    );
+
+                /*
+                 * Monta mensagem automática.
+                 */
+                $message =
+                    "💳 *Renovação do serviço*\n\n"
+                    . "Valor: *R$ {$valorFormatado}*\n\n"
+                    . "📲 *PIX Copia e Cola:*\n\n"
+                    . "{$copyCode}\n\n"
+                    . "Após o pagamento, a confirmação acontece automaticamente ✅";
+
+                /*
+                 * Dados enviados para o Kirago.
+                 */
+
+                $dados = [
+                    'phone_cliente' =>
+                        $request->chatId,
+
+                    'token' =>
+                        $cliente->user->username,
+
+                    'valor' =>
+                        $valor,
+
+                    'copy_code' =>
+                        $copyCode,
+                ];
+
+
+                /*
+                 * Envia pelo Kirago.
+                 */
+                $res = $this->kirago->enviarPIX(
+                    $dados
+                );
+
+                return response()->json([
+                    'success' => true,
+
+                    'client' =>
+                        $cliente,
+
+                    'pix' => [
+                        'reused' =>
+                            $pix['reused'],
+
+                        'valor' =>
+                            $valor,
+
+                        'copy_code' =>
+                            $copyCode,
+                    ],
+
+                    'kirago' =>
+                        $res,
+                ], 200);
+
+            } catch (\Throwable $e) {
+
+                report($e);
+
+                return response()->json([
+                    'success' => false,
+                    'message' =>
+                        'Erro ao gerar ou enviar a cobrança PIX.',
+                ], 500);
+            }
+        }
+
+        /*
+         * Fluxo normal sem renovação.
+         */
         return response()->json([
             'success' => true,
-            'client' => $cliente
+            'client' => $cliente,
         ], 200);
     }
-//    public function cobranca(): JsonResponse
-//    {
-//        $horaAtual = Carbon::now()->format('H:i');
-//        $clientes = Client::where('status', 'Ativo')
-//            ->where('cobrar', false)
-//            ->with('user.settings')
-//            ->get()
-//            ->filter(function ($cliente) {
-//                // Verifica se a data atual + $cliente->avisar dias é igual ao vencimento
-//                return Carbon::parse($cliente->vencimento)
-//                    ->isSameDay(Carbon::today()->addDays($cliente->avisar ?? 0));
-//            });
-//
-//        //enviar msg de cobrança para whatsapp
-//        foreach ($clientes as $index => $cliente) {
-//            if ($cliente->user->settings->time_cobranca < $horaAtual) {
-//                dispatch(new EnviarMensagemWhatsApp($cliente->id))->delay(
-//                    now()->addSeconds($index * 10)
-//                ); // envia um a cada 10s
-//            }
-//        }
-//        //fim
-//
-//        return response()->json([
-//            'success' => true,
-//            'clients' => $clientes
-//        ]);
-//    }
 
-    /*  public function cobranca(): JsonResponse
-      {
-          $horaAtual = Carbon::now()->format('H:i');
-          $clientes = Client::where('status', 'Ativo')
-              ->where('cobrar', false)
-              ->with('user.settings')
-              ->get()
-              ->filter(function ($cliente) {
-                  // Verifica se a data atual + $cliente->avisar dias é igual ao vencimento
-                  return Carbon::parse($cliente->vencimento)
-                      ->isSameDay(Carbon::today()->addDays($cliente->avisar ?? 0));
-              });
-
-
-          foreach ($clientes as $cliente) {
-              $vencimentoAtual = Carbon::parse($cliente->vencimento);
-              $novoVencimento = $vencimentoAtual; // Inicializa com o vencimento atual
-
-              if ($cliente->user->settings->time_cobranca < $horaAtual) {
-
-                  switch ($cliente->type_cobranca) {
-                      case 'MENSAL':
-                          $novoVencimento = $vencimentoAtual->addMonth();
-                          break;
-
-                      case 'BIMESTRAL':
-                          $novoVencimento = $vencimentoAtual->addMonths(2);
-                          break;
-
-                      case 'TRIMESTRAL':
-                          $novoVencimento = $vencimentoAtual->addMonths(3);
-                          break;
-
-                      case 'SEMESTRAL':
-                          $novoVencimento = $vencimentoAtual->addMonths(6);
-                          break;
-
-                      case 'ANUAL':
-                          $novoVencimento = $vencimentoAtual->addYear();
-                          break;
-
-                      default:
-                          // Opcional: lançar uma exceção ou logar o erro
-                          break;
-                  }
-
-                  $dados = [
-                      'message' => $cliente->msg_enviar ?? 'Mensagem padrão de cobrança',
-                      'phone_cliente' => $cliente->phone,
-                      'token' => $cliente->user->username,
-                  ];
-
-                  try {
-                      $this->quepasa->sendTextService($dados);
-                  } catch (\Exception $e) {
-                      // Opcional: logar erro de envio
-                      return response()->json(['error' => 'Erro ao enviar mensagem'], 500);
-                  }
-
-                  $cliente->update([
-                      'vencimento' => $novoVencimento,
-
-                  ]);
-
-                  $cliente->payments()->create([
-                      'user_id' => $cliente->user_id,
-                      'data_criado' => Carbon::today()->toDateString(),
-                      'valor_debito' => $cliente->value_mensalidade,
-                      'tipo_pagamento' => $cliente->preferencia,
-                  ]);
-              }
-
-
-
-              // Pausa de 2 segundos entre cada envio
-              sleep(5);
-          }
-
-          return response()->json(['success' => true], 200);
-      }*/
 
     public function cobranca(): JsonResponse
     {
         $horaAtual = Carbon::now()->format('H:i');
+
         $enviadas = 0;
         $ignoradas = 0;
         $erros = 0;
 
+
+        // ==========================================
+        // 1. LOCALIZA CLIENTES PARA COBRANÇA
+        // ==========================================
+
         $clientes = Client::where('status', 'Ativo')
             ->where('cobrar', false)
             ->where('is_processing', false)
-            ->with('user.settings')
+            ->with([
+                'user.settings'
+            ])
             ->get()
             ->filter(function ($cliente) use ($horaAtual) {
-                if (!$cliente->user || !$cliente->user->settings) {
+
+                /*
+                 * Precisa existir usuário e configurações.
+                 */
+                if (
+                    !$cliente->user
+                    || !$cliente->user->settings
+                ) {
                     return false;
                 }
 
-                if ($cliente->user->settings->time_cobranca >= $horaAtual) {
+
+                /*
+                 * Aguarda chegar o horário configurado
+                 * para cobrança.
+                 */
+                if (
+                    $cliente->user->settings->time_cobranca
+                    >= $horaAtual
+                ) {
                     return false;
                 }
 
-                return Carbon::parse($cliente->vencimento)
-                    ->isSameDay(Carbon::today()->addDays($cliente->avisar ?? 0));
+
+                /*
+                 * Verifica data da cobrança.
+                 *
+                 * Exemplo:
+                 *
+                 * vencimento = dia 10
+                 * avisar = 2
+                 *
+                 * cobrança será feita dia 8.
+                 */
+                return Carbon::parse(
+                    $cliente->vencimento
+                )->isSameDay(
+                    Carbon::today()->addDays(
+                        $cliente->avisar ?? 0
+                    )
+                );
             });
 
+
+        // ==========================================
+        // 2. NENHUMA COBRANÇA
+        // ==========================================
+
         if ($clientes->isEmpty()) {
+
             return response()->json([
-                'success' => false,
-                'message' => 'Nenhuma cobrança a ser realizada no momento.',
+                'success' => true,
+                'message' =>
+                    'Nenhuma cobrança a ser realizada no momento.',
+                'total' => 0,
+                'enviadas' => 0,
+                'ignoradas' => 0,
+                'erros' => 0,
             ], 200);
         }
 
+
+        // ==========================================
+        // 3. PROCESSA CLIENTES
+        // ==========================================
+
         foreach ($clientes as $cliente) {
-            $atualizado = Client::where('id', $cliente->id)
-                ->where('is_processing', false)
-                ->update(['is_processing' => true]);
+
+            /*
+             * Lock simples.
+             *
+             * Evita duas execuções simultâneas
+             * cobrarem o mesmo cliente.
+             */
+            $atualizado = Client::where(
+                'id',
+                $cliente->id
+            )
+                ->where(
+                    'is_processing',
+                    false
+                )
+                ->update([
+                    'is_processing' => true
+                ]);
+
 
             if ($atualizado === 0) {
                 continue;
             }
 
+
             try {
-                $status = $this->quepasa->statusService($cliente->user->username);
 
-                if ($status !== 'Ready') {
-                    \Log::warning('Quepasa não está Ready', [
-                        'cliente_id' => $cliente->id,
-                        'token' => $cliente->user->username,
-                        'status' => $status,
-                    ]);
+                // ==========================================
+                // 4. CONFERE USUÁRIO
+                // ==========================================
+
+                if (!$cliente->user) {
+
+                    \Log::warning(
+                        'Cliente sem usuário na cobrança',
+                        [
+                            'cliente_id' =>
+                                $cliente->id,
+                        ]
+                    );
 
                     $ignoradas++;
+
                     continue;
                 }
 
-                $phoneOriginal = preg_replace('/\D/', '', $cliente->phone);
 
-                $lid = $this->quepasa->chatIdConversa([
-                    'phone' => $phoneOriginal,
-                    'token' => $cliente->user->username,
-                ]);
+                if (!$cliente->user->username) {
 
-                if (!$lid || !str_contains($lid, '@lid')) {
-                    \Log::warning('Cliente sem LID, cobrança não enviada', [
-                        'cliente_id' => $cliente->id,
-                        'phone' => $phoneOriginal,
-                        'retorno_lid' => $lid,
-                        'token' => $cliente->user->username,
-                    ]);
+                    \Log::warning(
+                        'Usuário sem instância Kirago configurada',
+                        [
+                            'cliente_id' =>
+                                $cliente->id,
+
+                            'user_id' =>
+                                $cliente->user_id,
+                        ]
+                    );
 
                     $ignoradas++;
+
                     continue;
                 }
 
-                $vencimentoAtual = Carbon::parse($cliente->vencimento);
-                $novoVencimento = match ($cliente->type_cobranca) {
-                    'BIMESTRAL' => $vencimentoAtual->copy()->addMonths(2),
-                    'TRIMESTRAL' => $vencimentoAtual->copy()->addMonths(3),
-                    'SEMESTRAL' => $vencimentoAtual->copy()->addMonths(6),
-                    'ANUAL' => $vencimentoAtual->copy()->addYear(),
-                    default => $vencimentoAtual->copy()->addMonth(),
+
+                // ==========================================
+                // 5. CALCULA NOVO VENCIMENTO
+                // ==========================================
+
+                $vencimentoAtual = Carbon::parse(
+                    $cliente->vencimento
+                );
+
+
+                $novoVencimento = match (
+                $cliente->type_cobranca
+                ) {
+
+                    'BIMESTRAL' =>
+                    $vencimentoAtual
+                        ->copy()
+                        ->addMonths(2),
+
+                    'TRIMESTRAL' =>
+                    $vencimentoAtual
+                        ->copy()
+                        ->addMonths(3),
+
+                    'SEMESTRAL' =>
+                    $vencimentoAtual
+                        ->copy()
+                        ->addMonths(6),
+
+                    'ANUAL' =>
+                    $vencimentoAtual
+                        ->copy()
+                        ->addYear(),
+
+                    default =>
+                    $vencimentoAtual
+                        ->copy()
+                        ->addMonth(),
                 };
 
-                $mensagemPadrao = $cliente->user->settings->msg_padrao;
+
+                // ==========================================
+                // 6. MONTA MENSAGEM
+                // ==========================================
+
+                $mensagemPadrao =
+                    $cliente->user
+                        ->settings
+                        ?->msg_padrao;
+
 
                 $substituicoes = [
-                    '[nome]' => $cliente->name,
-                    '[vencimento]' => Carbon::parse($cliente->vencimento)->format('d/m/Y'),
-                    '[telefone]' => $cliente->phone,
-                    '[tipo_cobranca]' => $cliente->type_cobranca,
-                    '[valor]' => $cliente->value_mensalidade,
+
+                    '[nome]' =>
+                        $cliente->name,
+
+                    '[vencimento]' =>
+                        Carbon::parse(
+                            $cliente->vencimento
+                        )->format('d/m/Y'),
+
+                    '[telefone]' =>
+                        $cliente->phone,
+
+                    '[tipo_cobranca]' =>
+                        $cliente->type_cobranca,
+
+                    '[valor]' =>
+                        number_format(
+                            (float) $cliente->value_mensalidade,
+                            2,
+                            ',',
+                            '.'
+                        ),
                 ];
 
-                $mensagem = $mensagemPadrao
-                    ? str_replace(array_keys($substituicoes), array_values($substituicoes), $mensagemPadrao)
-                    : $cliente->msg_enviar;
+
+                if ($mensagemPadrao) {
+
+                    $mensagem = str_replace(
+                        array_keys($substituicoes),
+                        array_values($substituicoes),
+                        $mensagemPadrao
+                    );
+
+                } else {
+
+                    $mensagem =
+                        $cliente->msg_enviar;
+                }
+
+
+                // ==========================================
+                // 7. SEM MENSAGEM
+                // ==========================================
 
                 if (!$mensagem) {
-                    \Log::warning('Cliente sem mensagem de cobrança', [
-                        'cliente_id' => $cliente->id,
-                    ]);
+
+                    \Log::warning(
+                        'Cliente sem mensagem de cobrança',
+                        [
+                            'cliente_id' =>
+                                $cliente->id,
+                        ]
+                    );
 
                     $ignoradas++;
+
                     continue;
                 }
+
+
+                // ==========================================
+                // 8. NORMALIZA TELEFONE
+                // ==========================================
+
+                $phone = preg_replace(
+                    '/\D/',
+                    '',
+                    (string) $cliente->phone
+                );
+
+
+                if (!str_starts_with(
+                    $phone,
+                    '55'
+                )) {
+                    $phone = '55' . $phone;
+                }
+
+
+                // ==========================================
+                // 9. DADOS PARA O KIRAGO
+                // ==========================================
 
                 $dados = [
-                    'message' => $mensagem,
-                    'phone_cliente' => $lid,
-                    'token' => $cliente->user->username,
+
+                    'message' =>
+                        $mensagem,
+
+                    'phone_cliente' =>
+                        $phone,
+
+                    /*
+                     * Aqui usamos o username como
+                     * nome da instância Kirago.
+                     */
+                    'token' =>
+                        $cliente->user->username,
                 ];
 
-                $retorno = $this->quepasa->sendTextService($dados);
 
-                if (is_array($retorno) && isset($retorno['success']) && $retorno['success'] === false) {
-                    \Log::error('Erro no envio da cobrança pelo Quepasa', [
-                        'cliente_id' => $cliente->id,
-                        'retorno' => $retorno,
-                    ]);
+                // ==========================================
+                // 10. ENVIA PELO KIRAGO
+                // ==========================================
+
+                $retorno =
+                    $this->kirago
+                        ->enviarMensagem(
+                            $dados
+                        );
+
+
+                // ==========================================
+                // 11. CONFERE RESULTADO
+                // ==========================================
+
+                if (
+                    !isset($retorno['success'])
+                    || $retorno['success'] !== true
+                ) {
+
+                    \Log::error(
+                        'Erro no envio da cobrança pelo Kirago',
+                        [
+                            'cliente_id' =>
+                                $cliente->id,
+
+                            'phone' =>
+                                $phone,
+
+                            'instancia' =>
+                                $cliente->user->username,
+
+                            'retorno' =>
+                                $retorno,
+                        ]
+                    );
 
                     $erros++;
+
                     continue;
                 }
 
+
+                // ==========================================
+                // 12. ATUALIZA VENCIMENTO
+                // ==========================================
+
                 $cliente->update([
-                    'vencimento' => $novoVencimento,
+                    'vencimento' =>
+                        $novoVencimento,
                 ]);
 
+
+                // ==========================================
+                // 13. CRIA FINANCEIRO
+                // ==========================================
+
                 $cliente->payments()->create([
-                    'user_id' => $cliente->user_id,
-                    'data_criado' => Carbon::today()->toDateString(),
-                    'valor_debito' => $cliente->value_mensalidade,
-                    'tipo_pagamento' => $cliente->preferencia,
+
+                    'user_id' =>
+                        $cliente->user_id,
+
+                    'data_criado' =>
+                        Carbon::today()
+                            ->toDateString(),
+
+                    'valor_debito' =>
+                        $cliente->value_mensalidade,
+
+                    'tipo_pagamento' =>
+                        $cliente->preferencia,
                 ]);
+
+
+                // ==========================================
+                // 14. SUCESSO
+                // ==========================================
 
                 $enviadas++;
 
+
+                \Log::info(
+                    'Cobrança enviada pelo Kirago',
+                    [
+                        'cliente_id' =>
+                            $cliente->id,
+
+                        'phone' =>
+                            $phone,
+
+                        'instancia' =>
+                            $cliente->user->username,
+
+                        'novo_vencimento' =>
+                            $novoVencimento
+                                ->format('Y-m-d'),
+                    ]
+                );
+
+
+                /*
+                 * Evita disparar mensagens muito rápido.
+                 */
                 sleep(5);
+
             } catch (\Throwable $e) {
-                \Log::error('Erro ao processar cobrança', [
-                    'cliente_id' => $cliente->id,
-                    'phone' => $cliente->phone,
-                    'erro' => $e->getMessage(),
-                ]);
+
+                // ==========================================
+                // ERRO
+                // ==========================================
+
+                \Log::error(
+                    'Erro ao processar cobrança',
+                    [
+                        'cliente_id' =>
+                            $cliente->id,
+
+                        'phone' =>
+                            $cliente->phone,
+
+                        'erro' =>
+                            $e->getMessage(),
+
+                        'arquivo' =>
+                            $e->getFile(),
+
+                        'linha' =>
+                            $e->getLine(),
+                    ]
+                );
 
                 $erros++;
+
                 continue;
+
             } finally {
-                Client::where('id', $cliente->id)->update([
+
+                // ==========================================
+                // SEMPRE LIBERA O CLIENTE
+                // ==========================================
+
+                Client::where(
+                    'id',
+                    $cliente->id
+                )->update([
                     'is_processing' => false,
                 ]);
             }
         }
+
+
+        // ==========================================
+        // 15. RETORNO
+        // ==========================================
 
         return response()->json([
             'success' => true,
@@ -830,109 +1473,8 @@ class ClientController extends Controller
         ], 200);
     }
 
-    public function fastDepix(Request $request): JsonResponse
-    {
-        $phone = $request->phone;
-        $valor = $request->value_cobranca;
 
-        $cacheKey = "fastdepix_pix_{$phone}_{$valor}";
 
-        $pixExistente = Cache::get($cacheKey);
-
-        if ($pixExistente) {
-            $depixId = data_get($pixExistente, 'dadosDepix.data.depix_transaction_id');
-
-            $statusCache = Cache::get("fastdepix_status_{$depixId}");
-
-            $status = data_get($statusCache, 'status')
-                ?? data_get($pixExistente, 'dadosDepix.data.status');
-
-            if (!in_array($status, ['paid', 'expired', 'transaction.paid', 'transaction.expired'])) {
-                return response()->json([
-                    'success' => true,
-                    'reused' => true,
-                    'dadosDepix' => data_get($pixExistente, 'dadosDepix'),
-                ]);
-            }
-        }
-
-        $cliente = Client::where('phone', $phone)->first();
-
-        if (!$cliente) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Cliente não encontrado'
-            ], 404);
-        }
-
-        $dados = [
-            'amount' => $valor,
-            'user' => [
-                'name' => $cliente->referencia ?: $cliente->name,
-                'user_type' => 'individual',
-            ],
-            'payer_phone' => $cliente->phone,
-            'notification_url' => 'https://api.codeacode.com.br/api/webhooks/fastdepix',
-        ];
-
-        $dadosDepix = $this->fastDepix->gerarTransction($dados);
-
-        Cache::put($cacheKey, [
-            'dadosDepix' => $dadosDepix
-        ], now()->addMinutes(20));
-
-        return response()->json([
-            'success' => true,
-            'reused' => false,
-            'dadosDepix' => $dadosDepix,
-        ]);
-    }
-
-/*    public function webhooks(Request $request): JsonResponse
-    {
-        $payload = $request->all();
-
-        Log::info('FASTDEPIX WEBHOOK RECEBIDO', $payload);
-
-        $transactionId =
-            data_get($payload, 'depix_transaction_id') ??
-            data_get($payload, 'data.depix_transaction_id') ??
-            data_get($payload, 'transaction_id') ??
-            data_get($payload, 'data.transaction_id') ??
-            data_get($payload, 'id') ??
-            data_get($payload, 'data.id');
-
-        $status =
-            data_get($payload, 'status') ??
-            data_get($payload, 'data.status') ??
-            data_get($payload, 'event');
-
-        $event = data_get($payload, 'event');
-
-        if (!$transactionId) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Transaction ID não encontrado',
-                'payload' => $payload,
-            ], 400);
-        }
-
-        Cache::put("fastdepix_status_{$transactionId}", [
-            'status' => $status,
-            'event' => $event,
-            'transaction_id' => $transactionId,
-            'payload' => $payload,
-            'updated_at' => now()->toDateTimeString(),
-        ], now()->addHours(2));
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Webhook recebido',
-            'status' => $status,
-            'event' => $event,
-            'transaction_id' => $transactionId,
-        ]);
-    }*/
 
     public function webhooks(Request $request): JsonResponse
     {

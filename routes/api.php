@@ -47,6 +47,9 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
     Route::post('qrcode', [\App\Http\Controllers\QuepasaController::class, 'gerarQr']);
     Route::get('status', [\App\Http\Controllers\QuepasaController::class, 'statusConexao']);
 
+    ## KIRAGO
+    Route::get('criasessao-kirago', [\App\Http\Controllers\KiragoController::class, 'criarSessao']);
+
     ## Clientes
     Route::get('clientes', [\App\Http\Controllers\ClientController::class, 'index']);
     Route::get('contagem', [\App\Http\Controllers\ClientController::class, 'listCont']);
